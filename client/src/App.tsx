@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { marked } from "marked";
+import { MarkdownBody } from "./MarkdownBody";
 
 type Role = "user" | "assistant" | "system";
 
@@ -324,17 +324,16 @@ export default function App() {
         <div className="chat" ref={listRef}>
           {messages.map((m) => (
             <article key={m.id} className={`bubble ${m.role}`}>
-              <div
-                className="bubble-body"
-                dangerouslySetInnerHTML={{
-                  __html:
-                    m.role === "assistant"
-                      ? (marked.parse(
-                          m.text || (m.streaming ? "…" : "")
-                        ) as string)
-                      : escapeHtml(m.text).replace(/\n/g, "<br/>"),
-                }}
-              />
+              {m.role === "assistant" ? (
+                <MarkdownBody text={m.text} streaming={m.streaming} />
+              ) : (
+                <div
+                  className="bubble-body"
+                  dangerouslySetInnerHTML={{
+                    __html: escapeHtml(m.text).replace(/\n/g, "<br/>"),
+                  }}
+                />
+              )}
               {m.streaming && <span className="cursor-blink" />}
             </article>
           ))}

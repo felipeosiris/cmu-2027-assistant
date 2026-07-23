@@ -37,6 +37,7 @@ Reglas:
 - Prioriza notas: CMU-2027.md, Vision, Diagnostico, Congreso-2026/, Personas/, Objetivos, CMU-Experience, Ecosistema, Innovation-Hub, Monetización, Plataforma 365, Analítica, Servicios, Indicadores, Próximos pasos, Asistente-IA-ejemplos.
 - Si preguntan por personas o programa del 50° Congreso, usa Personas/ y Congreso-2026/.
 - Si piden listas o comparativas, usa tablas markdown.
+- Si piden gráficas, usa bloques \`\`\`mermaid con diagramas compatibles: pie, flowchart, xychart-beta, timeline, quadrantChart. Cierra siempre el fence. Incluye también la tabla de datos debajo.
 - No inventes: si no está en la bóveda, dilo.
 - Para respuestas cortas de voz, empieza con 1-2 frases de veredicto y luego el detalle.
 `.trim();

@@ -212,6 +212,38 @@ body {
   border: 1px solid var(--line);
 }
 
+.mermaid-wrap {
+  margin: 1rem 0;
+  padding: 1rem;
+  overflow-x: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.mermaid-wrap .mermaid {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  font-family: var(--font);
+}
+
+.mermaid-wrap .mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-fallback {
+  width: 100%;
+}
+
+.mermaid-error {
+  margin: 0 0 0.5rem;
+  color: var(--accent-warm);
+  font-size: 0.88rem;
+  font-weight: 500;
+}
+
 .cursor-blink {
   display: inline-block;
   width: 0.45rem;
