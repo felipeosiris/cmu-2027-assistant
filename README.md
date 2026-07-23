@@ -1,14 +1,33 @@
 # Asistente CMU 2027
 
-Portal local para preguntar sobre la carpeta Obsidian **CMU-2027** (Plan Estratégico) usando el **Cursor SDK**.
+Portal para preguntar sobre la carpeta Obsidian **CMU-2027** (Plan Estratégico + 50° Congreso 2026 + Personas) usando el **Cursor SDK**.
 
-## Requisitos
+## Demo con chat (backend gratis)
+
+Firebase Spark **no** permite Functions (haría falta Blaze). Alternativas:
+
+| Opción | Costo | Backend Node | Notas |
+|--------|-------|--------------|--------|
+| **GitHub Codespaces** (actual) | Incluido en tu plan GH | Sí | Demo pública con chat |
+| **Render** free web service | $0, sin tarjeta | Sí | Cold start ~30–60s tras idle 15 min · Blueprint listo |
+| Firebase Hosting Spark | $0 | No | Solo UI estática |
+
+**Demo viva (chat):** https://cmu-assistant-demo-vp6rp76p97q2p7w9-8788.app.github.dev/
+
+**UI estática Firebase:** https://cmu-2027-assistant.web.app
+
+**Repo:** https://github.com/felipeosiris/cmu-2027-assistant
+
+Deploy one-click a Render (login GitHub + env `CURSOR_API_KEY`):  
+https://render.com/deploy?repo=https://github.com/felipeosiris/cmu-2027-assistant
+
+## Requisitos locales
 
 1. Node 20+
 2. API key de Cursor (misma del becario de Chedraui)
 3. Chrome o Edge (voz)
 
-## Setup
+## Setup local
 
 ```bash
 cd cmu-ai
@@ -21,17 +40,8 @@ npm run dev
 
 Abre **http://localhost:5178** (Vite → API `:8788`).
 
-## Firebase Hosting (Spark)
-
-Solo UI estática. El chat **no** corre en la URL pública (sin Blaze / Functions).
-
-```bash
-npm run build
-firebase deploy --only hosting --project <project-id>
-```
-
 ## Stack
 
 - Frontend: React + Vite (Poppins, azul CMU)
-- Backend local: Express + SSE
-- Agente: `@cursor/sdk` con `local: { cwd: CMU-2027 }`
+- Backend: Express + SSE
+- Agente: `@cursor/sdk` con `local: { cwd: vault }`
