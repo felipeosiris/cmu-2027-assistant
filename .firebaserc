@@ -1,0 +1,15 @@
+{
+  "projects": {
+    "default": "cmu-2027-assistant"
+  },
+  "targets": {
+    "cmu-2027-assistant": {
+      "hosting": {
+        "main": [
+          "cmu-2027-assistant"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
