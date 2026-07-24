@@ -58,15 +58,15 @@ function welcomeMsg(): Msg {
     id: uid(),
     role: "system",
     text: IS_STATIC
-      ? "Vista estática en Firebase. Para chat con clima, restaurantes y voz natural: `cd cmu-ai && npm run dev`."
-      : "Soy tu asistente del 50° Congreso CMU en Puerto Vallarta. Puedo cruzar programa, personas, clima en vivo y restaurantes cerca del CIC. Pregúntame o pulsa una sugerencia.",
+      ? "Vista estática. Para el asistente completo (clima, lugares, voz): cd cmu-ai && npm run dev."
+      : "Listo para ayudarte en el 50° Congreso en Puerto Vallarta: programa, ponentes, clima del CIC y dónde comer cerca.",
   };
 }
 
 function emptyThread(): ChatThread {
   return {
     id: uid(),
-    title: "Nueva conversación",
+    title: "Consulta nueva",
     agentSessionId: null,
     messages: [welcomeMsg()],
     updatedAt: Date.now(),
@@ -86,7 +86,7 @@ function loadThreads(): ChatThread[] {
 
 function titleFromPrompt(prompt: string) {
   const t = prompt.trim().replace(/\s+/g, " ");
-  return t.length > 42 ? `${t.slice(0, 42)}…` : t || "Nueva conversación";
+  return t.length > 36 ? `${t.slice(0, 36)}…` : t || "Consulta nueva";
 }
 
 async function speakSummary(text: string, summaryHint?: string) {
@@ -104,7 +104,6 @@ async function speakSummary(text: string, summaryHint?: string) {
     audio.onended = () => URL.revokeObjectURL(url);
     await audio.play();
   } catch {
-    // Fallback browser TTS — solo resumen corto
     const clean = (summaryHint || text)
       .replace(/```[\s\S]*?```/g, " ")
       .replace(/\s+/g, " ")
@@ -113,7 +112,6 @@ async function speakSummary(text: string, summaryHint?: string) {
     if (!clean || !window.speechSynthesis) return;
     const u = new SpeechSynthesisUtterance(clean);
     u.lang = "es-MX";
-    u.rate = 1;
     const voices = window.speechSynthesis.getVoices();
     const preferred =
       voices.find((v) => /dalia|sabina|paulina|mexico|es-mx/i.test(v.name)) ||
@@ -140,19 +138,21 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceOut, setVoiceOut] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
-  const [weatherChip, setWeatherChip] = useState<string | null>(null);
-  const [health, setHealth] = useState<{
-    hasApiKey?: boolean;
-    model?: string;
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [weather, setWeather] = useState<{
+    temperatureC: number;
+    condition: string;
+    clothingTip: string;
   } | null>(null);
+  const [health, setHealth] = useState<{ hasApiKey?: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const listRef = useRef<HTMLDivElement>(null);
+  const feedRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef(input);
   inputRef.current = input;
 
   const active = threads.find((t) => t.id === activeId) || threads[0];
+  const hasUserMsgs = !!active?.messages.some((m) => m.role === "user");
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
@@ -167,19 +167,15 @@ export default function App() {
     fetch("/api/tools/weather")
       .then((r) => r.json())
       .then((w) => {
-        if (w?.temperatureC != null) {
-          setWeatherChip(
-            `${Math.round(w.temperatureC)}°C · ${w.condition || "CIC PV"}`
-          );
-        }
+        if (w?.temperatureC != null) setWeather(w);
       })
       .catch(() => null);
     window.speechSynthesis?.getVoices();
   }, []);
 
   useEffect(() => {
-    listRef.current?.scrollTo({
-      top: listRef.current.scrollHeight,
+    feedRef.current?.scrollTo({
+      top: feedRef.current.scrollHeight,
       behavior: "smooth",
     });
   }, [active?.messages, busy]);
@@ -187,7 +183,9 @@ export default function App() {
   const patchActive = useCallback(
     (fn: (t: ChatThread) => ChatThread) => {
       setThreads((all) =>
-        all.map((t) => (t.id === activeId ? fn({ ...t, updatedAt: Date.now() }) : t))
+        all.map((t) =>
+          t.id === activeId ? fn({ ...t, updatedAt: Date.now() }) : t
+        )
       );
     },
     [activeId]
@@ -198,6 +196,7 @@ export default function App() {
     setThreads((all) => [t, ...all]);
     setActiveId(t.id);
     setError(null);
+    setHistoryOpen(false);
   };
 
   const deleteChat = (id: string) => {
@@ -215,6 +214,7 @@ export default function App() {
       if (!prompt || busy || IS_STATIC || !active) return;
       setError(null);
       setInput("");
+      setHistoryOpen(false);
 
       const userMsg: Msg = { id: uid(), role: "user", text: prompt };
       const assistantId = uid();
@@ -258,7 +258,10 @@ export default function App() {
           }
           if (event === "session" && typeof parsed.sessionId === "string") {
             agentSessionId = parsed.sessionId;
-            patchActive((t) => ({ ...t, agentSessionId: parsed.sessionId as string }));
+            patchActive((t) => ({
+              ...t,
+              agentSessionId: parsed.sessionId as string,
+            }));
           }
           if (event === "delta" && typeof parsed.text === "string") {
             full += parsed.text;
@@ -354,7 +357,7 @@ export default function App() {
     }
     const rec = getRecognition();
     if (!rec) {
-      setError("Tu navegador no soporta micrófono. Usa Chrome.");
+      setError("Usa Chrome para dictado por voz.");
       return;
     }
     recognitionRef.current = rec;
@@ -393,10 +396,22 @@ export default function App() {
 
   const suggestions = useMemo(
     () => [
-      "¿Qué clima hay ahora en el CIC y qué ropa llevo?",
-      "Restaurantes cerca para comer después de la plenaria",
-      "¿Quién es el presidente de la Mesa Directiva?",
-      "Resume el programa del miércoles 3 de junio",
+      {
+        label: "Clima y vestimenta",
+        prompt: "¿Qué clima hay ahora en el CIC y qué ropa llevo a la siguiente sesión?",
+      },
+      {
+        label: "Comer cerca",
+        prompt: "Recomiéndame restaurantes cerca del CIC para después de una plenaria",
+      },
+      {
+        label: "Mesa Directiva",
+        prompt: "¿Quién integra la Mesa Directiva CMUN y quién es el presidente?",
+      },
+      {
+        label: "Miércoles 3",
+        prompt: "Resume el programa del miércoles 3 de junio del 50° Congreso",
+      },
     ],
     []
   );
@@ -407,86 +422,134 @@ export default function App() {
   );
 
   return (
-    <div className={`app ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
-      <aside className="sidebar">
-        <div className="sidebar-top">
-          <button type="button" className="new-chat" onClick={newChat}>
-            + Nueva conversación
-          </button>
-        </div>
-        <nav className="thread-list" aria-label="Conversaciones">
-          {sortedThreads.map((t) => (
-            <div
-              key={t.id}
-              className={`thread-item ${t.id === activeId ? "active" : ""}`}
-            >
-              <button
-                type="button"
-                className="thread-open"
-                onClick={() => setActiveId(t.id)}
-              >
-                {t.title}
-              </button>
-              <button
-                type="button"
-                className="thread-del"
-                title="Eliminar"
-                onClick={() => deleteChat(t.id)}
-              >
-                ×
-              </button>
-            </div>
-          ))}
-        </nav>
-        <div className="sidebar-foot">
-          <p className="brand-mini">Asistente CMU 2027</p>
-          <p className="muted-mini">Congreso · Clima · Lugares</p>
-        </div>
-      </aside>
+    <div className="shell">
+      <div className="atmosphere" aria-hidden />
+      <img
+        className="seal-watermark"
+        src="/cmu-seal.png"
+        alt=""
+        aria-hidden
+      />
 
-      <div className="stage">
-        <header className="topbar">
+      <header className="masthead">
+        <div className="masthead-brand">
+          <img
+            className="logo-lockup"
+            src="/cmu-logo-lockup.png"
+            alt="Colegio Mexicano de Urología Nacional"
+          />
+          <div className="product-line">
+            <span className="product-name">Asistente del Congreso</span>
+            <span className="product-edition">50° CMU · Puerto Vallarta 2026</span>
+          </div>
+        </div>
+        <div className="masthead-meta">
+          {weather && (
+            <div className="insight" title={weather.clothingTip}>
+              <span className="insight-k">CIC ahora</span>
+              <span className="insight-v">
+                {Math.round(weather.temperatureC)}° · {weather.condition}
+              </span>
+            </div>
+          )}
           <button
             type="button"
-            className="icon-btn"
-            onClick={() => setSidebarOpen((v) => !v)}
-            aria-label="Menú"
+            className="ghost-btn"
+            onClick={() => setHistoryOpen((v) => !v)}
           >
-            ☰
+            Consultas
           </button>
-          <div className="topbar-title">
-            <h1>
-              <span className="brand-prefix">Asistente</span>{" "}
-              <span className="brand-cmu">CMU 2027</span>
-            </h1>
-            <p className="topbar-sub">{active?.title}</p>
-          </div>
-          <div className="topbar-chips">
-            {weatherChip && <span className="chip weather">{weatherChip}</span>}
-            {!IS_STATIC && (
-              <span className={health?.hasApiKey ? "chip ok" : "chip warn"}>
-                {health?.hasApiKey ? "Listo" : "Sin API key"}
-              </span>
-            )}
-          </div>
-        </header>
+          <button type="button" className="ghost-btn primary-ghost" onClick={newChat}>
+            Nueva
+          </button>
+        </div>
+      </header>
 
-        <div className="conversation" ref={listRef}>
-          {active?.messages.map((m) => (
-            <article key={m.id} className={`msg ${m.role}`}>
-              {m.role !== "user" && (
-                <div className="avatar" aria-hidden>
-                  {m.role === "assistant" ? "AI" : "i"}
-                </div>
-              )}
-              <div className="msg-main">
-                {m.role === "assistant" ? (
-                  <>
-                    <MarkdownBody text={m.text} streaming={m.streaming} />
-                    {!m.streaming && m.text && (
+      {historyOpen && (
+        <div className="history-panel" role="dialog" aria-label="Consultas">
+          <div className="history-head">
+            <h2>Tus consultas</h2>
+            <button type="button" className="text-btn" onClick={() => setHistoryOpen(false)}>
+              Cerrar
+            </button>
+          </div>
+          <ul>
+            {sortedThreads.map((t) => (
+              <li key={t.id} className={t.id === activeId ? "on" : ""}>
+                <button
+                  type="button"
+                  className="hist-open"
+                  onClick={() => {
+                    setActiveId(t.id);
+                    setHistoryOpen(false);
+                  }}
+                >
+                  {t.title}
+                </button>
+                <button
+                  type="button"
+                  className="hist-del"
+                  onClick={() => deleteChat(t.id)}
+                  aria-label="Eliminar"
+                >
+                  Eliminar
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <main className="workspace">
+        {!hasUserMsgs ? (
+          <section className="landing">
+            <img className="landing-seal" src="/cmu-seal.png" alt="" />
+            <h1 className="landing-title">
+              Tu guía en el
+              <br />
+              <em>Congreso CMU</em>
+            </h1>
+            <p className="landing-lede">
+              Programa, ponentes, clima en el CIC y lugares para comer — en una
+              sola consulta.
+            </p>
+            {!IS_STATIC && (
+              <div className="action-rail">
+                {suggestions.map((s) => (
+                  <button
+                    key={s.label}
+                    type="button"
+                    className="action-tile"
+                    disabled={busy}
+                    onClick={() => void send(s.prompt)}
+                  >
+                    <span className="tile-label">{s.label}</span>
+                    <span className="tile-prompt">{s.prompt}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {IS_STATIC && (
+              <p className="landing-note">
+                Esta vista pública es solo presentación. El asistente completo
+                corre en local o Codespace.
+              </p>
+            )}
+          </section>
+        ) : (
+          <section className="briefings" ref={feedRef}>
+            {active?.messages
+              .filter((m) => m.role !== "system")
+              .map((m) => (
+                <article key={m.id} className={`briefing ${m.role}`}>
+                  <header className="briefing-head">
+                    <span className="briefing-who">
+                      {m.role === "user" ? "Tu consulta" : "Asistente CMU"}
+                    </span>
+                    {m.role === "assistant" && !m.streaming && m.text && (
                       <button
                         type="button"
-                        className="replay-voice"
+                        className="text-btn"
                         onClick={() =>
                           void speakSummary(m.text, m.voiceSummary)
                         }
@@ -494,70 +557,45 @@ export default function App() {
                         Escuchar resumen
                       </button>
                     )}
-                  </>
-                ) : (
-                  <div
-                    className="bubble-body"
-                    dangerouslySetInnerHTML={{
-                      __html: escapeHtml(m.text).replace(/\n/g, "<br/>"),
-                    }}
-                  />
-                )}
-              </div>
-            </article>
-          ))}
-          {busy && (
-            <p className="thinking" aria-live="polite">
-              Pensando con programa, clima y lugares…
-            </p>
-          )}
-        </div>
-
-        {!IS_STATIC &&
-          active &&
-          !active.messages.some((m) => m.role === "user") && (
-            <div className="prompt-grid">
-              {suggestions.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => void send(s)}
-                  disabled={busy}
-                >
-                  {s}
-                </button>
+                  </header>
+                  {m.role === "assistant" ? (
+                    <MarkdownBody text={m.text} streaming={m.streaming} />
+                  ) : (
+                    <p
+                      className="user-query"
+                      dangerouslySetInnerHTML={{
+                        __html: escapeHtml(m.text).replace(/\n/g, "<br/>"),
+                      }}
+                    />
+                  )}
+                </article>
               ))}
-            </div>
-          )}
+            {busy && (
+              <p className="status-line">Consultando programa, clima y lugares…</p>
+            )}
+          </section>
+        )}
+      </main>
 
-        {error && <p className="error-banner">{error}</p>}
+      {error && <p className="error-line">{error}</p>}
 
-        <form
-          className="dock"
-          onSubmit={(e) => {
-            e.preventDefault();
-            void send(input);
-          }}
-        >
+      <footer className="command">
+        <div className="command-inner">
           <button
             type="button"
-            className={`mic ${listening ? "hot" : ""}`}
+            className={`cmd-mic ${listening ? "hot" : ""}`}
             onClick={toggleListen}
             disabled={IS_STATIC}
             title="Dictar"
           >
-            Mic
+            {listening ? "…" : "Mic"}
           </button>
           <textarea
             value={input}
             disabled={IS_STATIC}
             onChange={(e) => setInput(e.target.value)}
-            placeholder={
-              IS_STATIC
-                ? "Chat solo en local / Codespace"
-                : "Pregunta sobre el congreso, clima, comida cerca del CIC…"
-            }
-            rows={2}
+            placeholder="Escribe tu consulta al asistente CMU…"
+            rows={1}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -565,29 +603,32 @@ export default function App() {
               }
             }}
           />
-          <div className="dock-actions">
-            <label className="toggle">
-              <input
-                type="checkbox"
-                checked={voiceOut}
-                disabled={IS_STATIC}
-                onChange={(e) => {
-                  setVoiceOut(e.target.checked);
-                  if (!e.target.checked) window.speechSynthesis?.cancel();
-                }}
-              />
-              Resumen en voz
-            </label>
-            <button
-              type="submit"
-              className="send"
-              disabled={IS_STATIC || busy || !input.trim()}
-            >
-              {busy ? "…" : "Enviar"}
-            </button>
-          </div>
-        </form>
-      </div>
+          <label className="cmd-voice">
+            <input
+              type="checkbox"
+              checked={voiceOut}
+              disabled={IS_STATIC}
+              onChange={(e) => {
+                setVoiceOut(e.target.checked);
+                if (!e.target.checked) window.speechSynthesis?.cancel();
+              }}
+            />
+            Voz
+          </label>
+          <button
+            type="button"
+            className="cmd-send"
+            disabled={IS_STATIC || busy || !input.trim()}
+            onClick={() => void send(input)}
+          >
+            Consultar
+          </button>
+        </div>
+        <p className="cmd-footnote">
+          Colegio Mexicano de Urología Nacional · Asistente del 50° Congreso
+          {!IS_STATIC && health?.hasApiKey === false && " · Falta CURSOR_API_KEY"}
+        </p>
+      </footer>
     </div>
   );
 }
