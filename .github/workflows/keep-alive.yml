@@ -1,0 +1,74 @@
+name: Keep CMU assistant alive
+
+on:
+  schedule:
+    # Codespace idle timeout is 30m — ping before it sleeps.
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: keep-cmu-alive
+  cancel-in-progress: true
+
+jobs:
+  wake:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.CODESPACE_PAT }}
+      CODESPACE_NAME: cmu-assistant-demo-vp6rp76p97q2p7w9
+      PUBLIC_URL: https://cmu-assistant-demo-vp6rp76p97q2p7w9-8788.app.github.dev
+    steps:
+      - name: Install GitHub CLI
+        run: |
+          if ! command -v gh >/dev/null; then
+            (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y))
+            sudo mkdir -p -m 755 /etc/apt/keyrings
+            wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg >/dev/null
+            sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+            sudo apt update
+            sudo apt install gh -y
+          fi
+          gh --version
+
+      - name: Ensure Codespace is Available
+        run: |
+          set -euo pipefail
+          state=$(gh api "/user/codespaces/${CODESPACE_NAME}" --jq .state)
+          echo "state=$state"
+          if [[ "$state" != "Available" ]]; then
+            gh api -X POST "/user/codespaces/${CODESPACE_NAME}/start" >/dev/null
+            for i in $(seq 1 36); do
+              state=$(gh api "/user/codespaces/${CODESPACE_NAME}" --jq .state)
+              echo "wait $i state=$state"
+              [[ "$state" == "Available" ]] && break
+              sleep 5
+            done
+          fi
+          [[ "$(gh api "/user/codespaces/${CODESPACE_NAME}" --jq .state)" == "Available" ]]
+
+      - name: Boot app + publish port
+        run: |
+          set -euo pipefail
+          # Touch activity so idle timer resets, then heal the process.
+          gh codespace ssh -c "$CODESPACE_NAME" -- 'bash /workspaces/cmu-2027-assistant/scripts/codespace-boot.sh' \
+            || gh codespace ssh -c "$CODESPACE_NAME" -- 'cd /workspaces/cmu-2027-assistant && bash scripts/codespace-boot.sh'
+          # Ensure public visibility (idempotent).
+          gh codespace ports visibility 8788:public -c "$CODESPACE_NAME" || true
+
+      - name: Health check
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 12); do
+            code=$(curl -sS -o /tmp/health.json -w "%{http_code}" --max-time 30 "${PUBLIC_URL}/api/health" || echo 000)
+            echo "attempt=$i http=$code"
+            if [[ "$code" == "200" ]]; then
+              cat /tmp/health.json
+              echo
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Public health check failed" >&2
+          exit 1

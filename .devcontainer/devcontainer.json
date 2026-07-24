@@ -5,11 +5,12 @@
   "portsAttributes": {
     "8788": {
       "label": "CMU Assistant",
-      "onAutoForward": "notify"
+      "onAutoForward": "notify",
+      "visibility": "public"
     }
   },
-  "postCreateCommand": "npm install && npm run build",
-  "postStartCommand": "npm run start",
+  "postCreateCommand": "npm ci && npm run build && npm install -g pm2",
+  "postStartCommand": "bash scripts/codespace-boot.sh",
   "customizations": {
     "vscode": {
       "settings": {
