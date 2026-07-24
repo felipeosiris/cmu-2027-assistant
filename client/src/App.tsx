@@ -8,6 +8,15 @@ type Msg = {
   role: Role;
   text: string;
   streaming?: boolean;
+  voiceSummary?: string;
+};
+
+type ChatThread = {
+  id: string;
+  title: string;
+  agentSessionId: string | null;
+  messages: Msg[];
+  updatedAt: number;
 };
 
 type SpeechRecognitionLike = {
@@ -25,10 +34,11 @@ type SpeechRecognitionLike = {
   stop: () => void;
 };
 
-/** Solo Firebase Hosting es estático (sin API). Render / local sí tienen backend. */
 const IS_STATIC =
   typeof window !== "undefined" &&
   /(\.web\.app|\.firebaseapp\.com)$/i.test(window.location.hostname);
+
+const STORAGE_KEY = "cmu-ai-threads-v1";
 
 function uid() {
   return crypto.randomUUID();
@@ -43,45 +53,98 @@ function getRecognition(): SpeechRecognitionLike | null {
   return Ctor ? new Ctor() : null;
 }
 
-function speak(text: string, enabled: boolean) {
-  if (!enabled || !window.speechSynthesis) return;
-  window.speechSynthesis.cancel();
-  const clean = text
-    .replace(/```[\s\S]*?```/g, " bloque de código ")
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
-    .replace(/[#*_`|>-]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 1200);
-  if (!clean) return;
-  const u = new SpeechSynthesisUtterance(clean);
-  u.lang = "es-MX";
-  u.rate = 1.02;
-  const voices = window.speechSynthesis.getVoices();
-  const es = voices.find((v) => v.lang.startsWith("es"));
-  if (es) u.voice = es;
-  window.speechSynthesis.speak(u);
+function welcomeMsg(): Msg {
+  return {
+    id: uid(),
+    role: "system",
+    text: IS_STATIC
+      ? "Vista estática en Firebase. Para chat con clima, restaurantes y voz natural: `cd cmu-ai && npm run dev`."
+      : "Soy tu asistente del 50° Congreso CMU en Puerto Vallarta. Puedo cruzar programa, personas, clima en vivo y restaurantes cerca del CIC. Pregúntame o pulsa una sugerencia.",
+  };
+}
+
+function emptyThread(): ChatThread {
+  return {
+    id: uid(),
+    title: "Nueva conversación",
+    agentSessionId: null,
+    messages: [welcomeMsg()],
+    updatedAt: Date.now(),
+  };
+}
+
+function loadThreads(): ChatThread[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return [emptyThread()];
+    const parsed = JSON.parse(raw) as ChatThread[];
+    return parsed.length ? parsed : [emptyThread()];
+  } catch {
+    return [emptyThread()];
+  }
+}
+
+function titleFromPrompt(prompt: string) {
+  const t = prompt.trim().replace(/\s+/g, " ");
+  return t.length > 42 ? `${t.slice(0, 42)}…` : t || "Nueva conversación";
+}
+
+async function speakSummary(text: string, summaryHint?: string) {
+  window.speechSynthesis?.cancel();
+  try {
+    const res = await fetch("/api/speak", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: summaryHint || text }),
+    });
+    if (!res.ok) throw new Error(`TTS ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onended = () => URL.revokeObjectURL(url);
+    await audio.play();
+  } catch {
+    // Fallback browser TTS — solo resumen corto
+    const clean = (summaryHint || text)
+      .replace(/```[\s\S]*?```/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 280);
+    if (!clean || !window.speechSynthesis) return;
+    const u = new SpeechSynthesisUtterance(clean);
+    u.lang = "es-MX";
+    u.rate = 1;
+    const voices = window.speechSynthesis.getVoices();
+    const preferred =
+      voices.find((v) => /dalia|sabina|paulina|mexico|es-mx/i.test(v.name)) ||
+      voices.find((v) => v.lang.startsWith("es"));
+    if (preferred) u.voice = preferred;
+    window.speechSynthesis.speak(u);
+  }
+}
+
+function escapeHtml(s: string) {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 export default function App() {
-  const [messages, setMessages] = useState<Msg[]>([
-    {
-      id: uid(),
-      role: "system",
-      text: IS_STATIC
-        ? "Vista publicada en Firebase Hosting (solo UI). El chat con Cursor SDK requiere correr el asistente en local: cd cmu-ai && npm run dev"
-        : "Pregúntame sobre el Plan Estratégico CMU 2027. Puedes hablar con el micrófono; las respuestas se pueden oír en voz alta.",
-    },
-  ]);
+  const [threads, setThreads] = useState<ChatThread[]>(() =>
+    typeof window !== "undefined" ? loadThreads() : [emptyThread()]
+  );
+  const [activeId, setActiveId] = useState(() => threads[0]?.id);
   const [input, setInput] = useState("");
-  const [sessionId, setSessionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceOut, setVoiceOut] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [weatherChip, setWeatherChip] = useState<string | null>(null);
   const [health, setHealth] = useState<{
     hasApiKey?: boolean;
     model?: string;
-    vaultCwd?: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -89,12 +152,28 @@ export default function App() {
   const inputRef = useRef(input);
   inputRef.current = input;
 
+  const active = threads.find((t) => t.id === activeId) || threads[0];
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
+  }, [threads]);
+
   useEffect(() => {
     if (IS_STATIC) return;
     fetch("/api/health")
       .then((r) => r.json())
       .then(setHealth)
       .catch(() => setHealth(null));
+    fetch("/api/tools/weather")
+      .then((r) => r.json())
+      .then((w) => {
+        if (w?.temperatureC != null) {
+          setWeatherChip(
+            `${Math.round(w.temperatureC)}°C · ${w.condition || "CIC PV"}`
+          );
+        }
+      })
+      .catch(() => null);
     window.speechSynthesis?.getVoices();
   }, []);
 
@@ -103,37 +182,72 @@ export default function App() {
       top: listRef.current.scrollHeight,
       behavior: "smooth",
     });
-  }, [messages, busy]);
+  }, [active?.messages, busy]);
+
+  const patchActive = useCallback(
+    (fn: (t: ChatThread) => ChatThread) => {
+      setThreads((all) =>
+        all.map((t) => (t.id === activeId ? fn({ ...t, updatedAt: Date.now() }) : t))
+      );
+    },
+    [activeId]
+  );
+
+  const newChat = () => {
+    const t = emptyThread();
+    setThreads((all) => [t, ...all]);
+    setActiveId(t.id);
+    setError(null);
+  };
+
+  const deleteChat = (id: string) => {
+    setThreads((all) => {
+      const next = all.filter((t) => t.id !== id);
+      if (!next.length) next.push(emptyThread());
+      if (id === activeId) setActiveId(next[0].id);
+      return next;
+    });
+  };
 
   const send = useCallback(
     async (raw: string) => {
       const prompt = raw.trim();
-      if (!prompt || busy || IS_STATIC) return;
+      if (!prompt || busy || IS_STATIC || !active) return;
       setError(null);
       setInput("");
+
       const userMsg: Msg = { id: uid(), role: "user", text: prompt };
       const assistantId = uid();
-      setMessages((m) => [
-        ...m,
-        userMsg,
-        { id: assistantId, role: "assistant", text: "", streaming: true },
-      ]);
+      const isFirstUser = !active.messages.some((m) => m.role === "user");
+
+      patchActive((t) => ({
+        ...t,
+        title: isFirstUser ? titleFromPrompt(prompt) : t.title,
+        messages: [
+          ...t.messages,
+          userMsg,
+          { id: assistantId, role: "assistant", text: "", streaming: true },
+        ],
+      }));
       setBusy(true);
 
       try {
         const res = await fetch("/api/chat", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt, sessionId }),
+          body: JSON.stringify({
+            prompt,
+            sessionId: active.agentSessionId,
+          }),
         });
-        if (!res.ok || !res.body) {
-          throw new Error(`HTTP ${res.status}`);
-        }
+        if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         let full = "";
+        let voiceSummary = "";
+        let agentSessionId = active.agentSessionId;
 
         const handleEvent = (event: string, data: string) => {
           let parsed: Record<string, unknown> = {};
@@ -143,30 +257,43 @@ export default function App() {
             return;
           }
           if (event === "session" && typeof parsed.sessionId === "string") {
-            setSessionId(parsed.sessionId);
+            agentSessionId = parsed.sessionId;
+            patchActive((t) => ({ ...t, agentSessionId: parsed.sessionId as string }));
           }
           if (event === "delta" && typeof parsed.text === "string") {
             full += parsed.text;
-            setMessages((m) =>
-              m.map((msg) =>
+            patchActive((t) => ({
+              ...t,
+              messages: t.messages.map((msg) =>
                 msg.id === assistantId
                   ? { ...msg, text: full, streaming: true }
                   : msg
-              )
-            );
+              ),
+            }));
           }
           if (event === "done") {
             const finalText =
               (typeof parsed.text === "string" && parsed.text) || full;
             full = finalText;
-            setMessages((m) =>
-              m.map((msg) =>
+            voiceSummary =
+              typeof parsed.voiceSummary === "string"
+                ? parsed.voiceSummary
+                : "";
+            patchActive((t) => ({
+              ...t,
+              agentSessionId,
+              messages: t.messages.map((msg) =>
                 msg.id === assistantId
-                  ? { ...msg, text: finalText, streaming: false }
+                  ? {
+                      ...msg,
+                      text: finalText,
+                      streaming: false,
+                      voiceSummary,
+                    }
                   : msg
-              )
-            );
-            speak(finalText, voiceOut);
+              ),
+            }));
+            if (voiceOut) void speakSummary(finalText, voiceSummary);
           }
           if (event === "error") {
             const msg =
@@ -174,13 +301,14 @@ export default function App() {
                 ? parsed.message
                 : "Error en el agente";
             setError(msg);
-            setMessages((m) =>
-              m.map((x) =>
+            patchActive((t) => ({
+              ...t,
+              messages: t.messages.map((x) =>
                 x.id === assistantId
                   ? { ...x, text: x.text || `⚠️ ${msg}`, streaming: false }
                   : x
-              )
-            );
+              ),
+            }));
           }
         };
 
@@ -204,16 +332,17 @@ export default function App() {
       } catch (e) {
         const msg = e instanceof Error ? e.message : "Error de red";
         setError(msg);
-        setMessages((m) =>
-          m.map((x) =>
+        patchActive((t) => ({
+          ...t,
+          messages: t.messages.map((x) =>
             x.streaming ? { ...x, text: `⚠️ ${msg}`, streaming: false } : x
-          )
-        );
+          ),
+        }));
       } finally {
         setBusy(false);
       }
     },
-    [busy, sessionId, voiceOut]
+    [busy, active, patchActive, voiceOut]
   );
 
   const toggleListen = () => {
@@ -225,7 +354,7 @@ export default function App() {
     }
     const rec = getRecognition();
     if (!rec) {
-      setError("Tu navegador no soporta reconocimiento de voz. Usa Chrome.");
+      setError("Tu navegador no soporta micrófono. Usa Chrome.");
       return;
     }
     recognitionRef.current = rec;
@@ -262,102 +391,149 @@ export default function App() {
     }
   };
 
-  const resetSession = async () => {
-    if (IS_STATIC) return;
-    if (sessionId) {
-      await fetch("/api/session/reset", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId }),
-      });
-    }
-    setSessionId(null);
-    setMessages([
-      {
-        id: uid(),
-        role: "system",
-        text: "Sesión reiniciada. Pregunta de nuevo sobre CMU 2027.",
-      },
-    ]);
-  };
-
   const suggestions = useMemo(
     () => [
-      "¿Cuál es la visión del plan CMU 2027?",
-      "Resume el modelo de monetización",
-      "¿Qué es el Innovation Hub?",
-      "Lista los próximos pasos",
+      "¿Qué clima hay ahora en el CIC y qué ropa llevo?",
+      "Restaurantes cerca para comer después de la plenaria",
+      "¿Quién es el presidente de la Mesa Directiva?",
+      "Resume el programa del miércoles 3 de junio",
     ],
     []
   );
 
-  return (
-    <div className="page">
-      <div className="atmosphere" aria-hidden />
-      <header className="hero">
-        <h1 className="brand">
-          <span className="brand-prefix">Asistente</span>{" "}
-          <span className="brand-cmu">CMU 2027</span>
-        </h1>
-        <p className="lede">
-          Plan Estratégico de Transformación Digital del Colegio Mexicano de
-          Urología.
-        </p>
-        <div className="meta">
-          {IS_STATIC ? (
-            <span className="pill warn">Hosting estático · chat solo local</span>
-          ) : (
-            <>
-              <span className={health?.hasApiKey ? "pill ok" : "pill warn"}>
-                {health?.hasApiKey ? "API key OK" : "Falta CURSOR_API_KEY"}
-              </span>
-              <span className="pill">{health?.model || "…"}</span>
-              <span className="pill mono" title={health?.vaultCwd}>
-                CMU-2027
-              </span>
-            </>
-          )}
-        </div>
-      </header>
+  const sortedThreads = useMemo(
+    () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
+    [threads]
+  );
 
-      <main className="shell">
-        <div className="chat" ref={listRef}>
-          {messages.map((m) => (
-            <article key={m.id} className={`bubble ${m.role}`}>
-              {m.role === "assistant" ? (
-                <MarkdownBody text={m.text} streaming={m.streaming} />
-              ) : (
-                <div
-                  className="bubble-body"
-                  dangerouslySetInnerHTML={{
-                    __html: escapeHtml(m.text).replace(/\n/g, "<br/>"),
-                  }}
-                />
+  return (
+    <div className={`app ${sidebarOpen ? "sidebar-open" : "sidebar-closed"}`}>
+      <aside className="sidebar">
+        <div className="sidebar-top">
+          <button type="button" className="new-chat" onClick={newChat}>
+            + Nueva conversación
+          </button>
+        </div>
+        <nav className="thread-list" aria-label="Conversaciones">
+          {sortedThreads.map((t) => (
+            <div
+              key={t.id}
+              className={`thread-item ${t.id === activeId ? "active" : ""}`}
+            >
+              <button
+                type="button"
+                className="thread-open"
+                onClick={() => setActiveId(t.id)}
+              >
+                {t.title}
+              </button>
+              <button
+                type="button"
+                className="thread-del"
+                title="Eliminar"
+                onClick={() => deleteChat(t.id)}
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </nav>
+        <div className="sidebar-foot">
+          <p className="brand-mini">Asistente CMU 2027</p>
+          <p className="muted-mini">Congreso · Clima · Lugares</p>
+        </div>
+      </aside>
+
+      <div className="stage">
+        <header className="topbar">
+          <button
+            type="button"
+            className="icon-btn"
+            onClick={() => setSidebarOpen((v) => !v)}
+            aria-label="Menú"
+          >
+            ☰
+          </button>
+          <div className="topbar-title">
+            <h1>
+              <span className="brand-prefix">Asistente</span>{" "}
+              <span className="brand-cmu">CMU 2027</span>
+            </h1>
+            <p className="topbar-sub">{active?.title}</p>
+          </div>
+          <div className="topbar-chips">
+            {weatherChip && <span className="chip weather">{weatherChip}</span>}
+            {!IS_STATIC && (
+              <span className={health?.hasApiKey ? "chip ok" : "chip warn"}>
+                {health?.hasApiKey ? "Listo" : "Sin API key"}
+              </span>
+            )}
+          </div>
+        </header>
+
+        <div className="conversation" ref={listRef}>
+          {active?.messages.map((m) => (
+            <article key={m.id} className={`msg ${m.role}`}>
+              {m.role !== "user" && (
+                <div className="avatar" aria-hidden>
+                  {m.role === "assistant" ? "AI" : "i"}
+                </div>
               )}
-              {m.streaming && <span className="cursor-blink" />}
+              <div className="msg-main">
+                {m.role === "assistant" ? (
+                  <>
+                    <MarkdownBody text={m.text} streaming={m.streaming} />
+                    {!m.streaming && m.text && (
+                      <button
+                        type="button"
+                        className="replay-voice"
+                        onClick={() =>
+                          void speakSummary(m.text, m.voiceSummary)
+                        }
+                      >
+                        Escuchar resumen
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <div
+                    className="bubble-body"
+                    dangerouslySetInnerHTML={{
+                      __html: escapeHtml(m.text).replace(/\n/g, "<br/>"),
+                    }}
+                  />
+                )}
+              </div>
             </article>
           ))}
+          {busy && (
+            <p className="thinking" aria-live="polite">
+              Pensando con programa, clima y lugares…
+            </p>
+          )}
         </div>
 
-        {!IS_STATIC && (
-          <div className="suggestions">
-            {suggestions.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => void send(s)}
-                disabled={busy}
-              >
-                {s}
-              </button>
-            ))}
-          </div>
-        )}
+        {!IS_STATIC &&
+          active &&
+          !active.messages.some((m) => m.role === "user") && (
+            <div className="prompt-grid">
+              {suggestions.map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => void send(s)}
+                  disabled={busy}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          )}
 
-        {error && <p className="error">{error}</p>}
+        {error && <p className="error-banner">{error}</p>}
 
         <form
-          className="composer"
+          className="dock"
           onSubmit={(e) => {
             e.preventDefault();
             void send(input);
@@ -367,22 +543,21 @@ export default function App() {
             type="button"
             className={`mic ${listening ? "hot" : ""}`}
             onClick={toggleListen}
-            title="Hablar"
-            aria-pressed={listening}
             disabled={IS_STATIC}
+            title="Dictar"
           >
-            {listening ? "Escuchando…" : "Mic"}
+            Mic
           </button>
           <textarea
             value={input}
+            disabled={IS_STATIC}
             onChange={(e) => setInput(e.target.value)}
             placeholder={
               IS_STATIC
-                ? "Chat deshabilitado en Hosting — usa npm run dev"
-                : "Pregunta sobre visión, monetización, Innovation Hub…"
+                ? "Chat solo en local / Codespace"
+                : "Pregunta sobre el congreso, clima, comida cerca del CIC…"
             }
             rows={2}
-            disabled={IS_STATIC}
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
@@ -390,7 +565,7 @@ export default function App() {
               }
             }}
           />
-          <div className="actions">
+          <div className="dock-actions">
             <label className="toggle">
               <input
                 type="checkbox"
@@ -401,34 +576,18 @@ export default function App() {
                   if (!e.target.checked) window.speechSynthesis?.cancel();
                 }}
               />
-              Voz respuesta
+              Resumen en voz
             </label>
-            <button
-              type="button"
-              className="ghost"
-              onClick={() => void resetSession()}
-              disabled={IS_STATIC}
-            >
-              Nueva sesión
-            </button>
             <button
               type="submit"
               className="send"
               disabled={IS_STATIC || busy || !input.trim()}
             >
-              {busy ? "Pensando…" : "Enviar"}
+              {busy ? "…" : "Enviar"}
             </button>
           </div>
         </form>
-      </main>
+      </div>
     </div>
   );
-}
-
-function escapeHtml(s: string) {
-  return s
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
 }
