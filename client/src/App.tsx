@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarkdownBody } from "./MarkdownBody";
+import { PlaceMaps, type PlaceCard } from "./PlaceMaps";
+import {
+  MyAgendaPanel,
+  downloadResponsePdf,
+  shareOrCopy,
+} from "./MyAgenda";
 
 type Role = "user" | "assistant" | "system";
 
@@ -9,6 +15,8 @@ type Msg = {
   text: string;
   streaming?: boolean;
   voiceSummary?: string;
+  places?: PlaceCard[];
+  venue?: PlaceCard | null;
 };
 
 type ChatThread = {
@@ -18,6 +26,8 @@ type ChatThread = {
   messages: Msg[];
   updatedAt: number;
 };
+
+type Suggestion = { label: string; prompt: string; topics: string[] };
 
 type SpeechRecognitionLike = {
   lang: string;
@@ -40,6 +50,197 @@ const IS_STATIC =
 
 const STORAGE_KEY = "cmu-ai-threads-v1";
 
+const SUGGESTION_BANK: Suggestion[] = [
+  {
+    label: "Ahora / siguiente",
+    prompt: "¿Qué hay ahora en el congreso y qué sigue en los próximos 30 minutos?",
+    topics: ["agenda", "programa"],
+  },
+  {
+    label: "Salones CIC",
+    prompt: "¿Cuáles son los salones del CIC y qué se imparte en Maito y Caletas?",
+    topics: ["salones", "programa"],
+  },
+  {
+    label: "Patrocinadores",
+    prompt: "Lista patrocinadores Oro y Plata y qué actividad tiene Astellas",
+    topics: ["sponsors"],
+  },
+  {
+    label: "Ficha Sotelo",
+    prompt: "Dame la ficha del ponente René Sotelo Noguera y en qué horario habla",
+    topics: ["personas", "programa"],
+  },
+  {
+    label: "Clima y ropa",
+    prompt: "¿Qué clima hay ahora en el CIC y qué ropa me conviene?",
+    topics: ["clima", "ropa"],
+  },
+  {
+    label: "Comer cerca",
+    prompt: "Recomiéndame 4 restaurantes cerca del CIC con buen rating",
+    topics: ["comida"],
+  },
+  {
+    label: "Café rápido",
+    prompt: "¿Dónde tomo un café rápido cerca del CIC entre sesiones?",
+    topics: ["comida", "receso"],
+  },
+  {
+    label: "Cómo llegar al CIC",
+    prompt: "¿Dónde queda el CIC y cómo llego? Muéstrame el mapa",
+    topics: ["sede", "mapa"],
+  },
+  {
+    label: "Hotel cerca",
+    prompt: "Recomiéndame 3 hoteles cerca del CIC con buen rating",
+    topics: ["hotel"],
+  },
+  {
+    label: "Estacionamiento",
+    prompt: "¿Dónde puedo estacionar cerca del CIC?",
+    topics: ["parking"],
+  },
+  {
+    label: "Farmacia",
+    prompt: "¿Hay farmacia cerca del CIC por si necesito algo urgente?",
+    topics: ["farmacia"],
+  },
+  {
+    label: "Urgencias",
+    prompt: "¿Cuál es el hospital o urgencias más cerca del CIC?",
+    topics: ["urgencia"],
+  },
+  {
+    label: "Cajero ATM",
+    prompt: "¿Dónde hay cajero automático cerca del CIC?",
+    topics: ["cajero"],
+  },
+  {
+    label: "Mesa Directiva",
+    prompt: "¿Quién es el presidente y quién integra la Mesa Directiva CMUN?",
+    topics: ["mesa", "personas"],
+  },
+  {
+    label: "Programa hoy",
+    prompt: "Resume el programa del día más relevante del 50° Congreso",
+    topics: ["programa"],
+  },
+  {
+    label: "Miércoles 3",
+    prompt: "¿Qué hay el miércoles 3 de junio? Destaca uropediatría y andrología",
+    topics: ["programa", "miercoles"],
+  },
+  {
+    label: "Jueves 4",
+    prompt: "Resume el jueves 4: HPB, cáncer vesical y renal",
+    topics: ["programa", "jueves"],
+  },
+  {
+    label: "Viernes 5",
+    prompt: "¿Qué ver el viernes 5 de junio sobre endourología y próstata?",
+    topics: ["programa", "viernes"],
+  },
+  {
+    label: "Innovation Hub",
+    prompt: "Explícame el Innovation Hub del plan estratégico CMU 2027",
+    topics: ["plan"],
+  },
+  {
+    label: "Monetización",
+    prompt: "Resume el modelo de monetización del plan CMU 2027",
+    topics: ["plan"],
+  },
+  {
+    label: "Ponente internacional",
+    prompt: "¿Qué ponentes internacionales destacan y de qué hablan?",
+    topics: ["personas", "programa"],
+  },
+  {
+    label: "Tras una plenaria",
+    prompt: "Acabo de salir de una plenaria: clima, ropa y dónde comer cerca",
+    topics: ["clima", "comida", "receso"],
+  },
+  {
+    label: "Próxima sesión",
+    prompt: "Ayúdame a prepararme para la siguiente sesión: tema, ponente y tips",
+    topics: ["programa", "personas"],
+  },
+  {
+    label: "Asistente IA del plan",
+    prompt: "Dame ejemplos de uso del Asistente IA del congreso según la bóveda",
+    topics: ["plan", "ia"],
+  },
+];
+
+function detectTopics(text: string): string[] {
+  const t = text.toLowerCase();
+  const found: string[] = [];
+  if (/clima|temperatura|calor|fr[ií]o|ropa|paraguas|vestir/.test(t))
+    found.push("clima", "ropa");
+  if (/ahora|siguiente|agenda|horario|programa/.test(t))
+    found.push("agenda", "programa");
+  if (/sal[oó]n|maito|quimixto|caletas|majahuitas/.test(t))
+    found.push("salones", "programa");
+  if (/patrocin|sponsor|astellas|oro|plata|bronce/.test(t))
+    found.push("sponsors");
+  if (/restaurante|comer|comida|cenar|caf[eé]|almorz/.test(t))
+    found.push("comida");
+  if (/c[ií]c|sede|llegar|ubicaci[oó]n|mapa/.test(t)) found.push("sede", "mapa");
+  if (/hotel|hospedaje|dormir/.test(t)) found.push("hotel");
+  if (/estacionamiento|parking|aparcar|coche|auto/.test(t))
+    found.push("parking");
+  if (/farmacia|medicamento/.test(t)) found.push("farmacia");
+  if (/hospital|urgencia|emergencia/.test(t)) found.push("urgencia");
+  if (/cajero|atm|efectivo/.test(t)) found.push("cajero");
+  if (/mesa|presidente|directiva|hern[aá]ndez|porras/.test(t))
+    found.push("mesa", "personas");
+  if (/programa|junio|plenaria|sesi[oó]n|curso|horario/.test(t))
+    found.push("programa");
+  if (/mi[eé]rcoles|3 de junio/.test(t)) found.push("miercoles");
+  if (/jueves|4 de junio/.test(t)) found.push("jueves");
+  if (/viernes|5 de junio/.test(t)) found.push("viernes");
+  if (/ponente|dr\.|dra\.|palou|sotelo|denstedt|reiter/.test(t))
+    found.push("personas");
+  if (/monetiz|innovaci[oó]n|estrat[eé]gic|plataforma 365|visi[oó]n/.test(t))
+    found.push("plan");
+  if (/receso|hueco|break|despu[eé]s de/.test(t)) found.push("receso");
+  return [...new Set(found)];
+}
+
+function pickSuggestions(history: string[], limit = 4): Suggestion[] {
+  const asked = history.join("\n").toLowerCase();
+  const topics = history.flatMap(detectTopics);
+  const topicCount = topics.reduce<Record<string, number>>((acc, t) => {
+    acc[t] = (acc[t] || 0) + 1;
+    return acc;
+  }, {});
+
+  const scored = SUGGESTION_BANK.map((s, i) => {
+    const already =
+      asked.includes(s.prompt.slice(0, 28).toLowerCase()) ||
+      history.some((h) => h.toLowerCase().includes(s.label.toLowerCase()));
+    if (already) return { s, score: -100 };
+
+    let score = 1;
+    for (const t of s.topics) {
+      if (topicCount[t]) score += 3 * topicCount[t];
+      else score += 0.5; // explore related
+    }
+    // diversify: boost topics not yet covered
+    const uncovered = s.topics.every((t) => !topicCount[t]);
+    if (history.length && uncovered) score += 4;
+    // rotate with time so it feels alive
+    score += (Date.now() / 60000 + i) % 3;
+    return { s, score };
+  });
+
+  return scored
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit)
+    .map((x) => x.s);
+}
+
 function uid() {
   return crypto.randomUUID();
 }
@@ -58,15 +259,15 @@ function welcomeMsg(): Msg {
     id: uid(),
     role: "system",
     text: IS_STATIC
-      ? "Vista estática. Para el asistente completo (clima, lugares, voz): cd cmu-ai && npm run dev."
-      : "Listo para ayudarte en el 50° Congreso en Puerto Vallarta: programa, ponentes, clima del CIC y dónde comer cerca.",
+      ? "Vista estática. Para el asistente completo: cd cmu-ai && npm run dev."
+      : "Listo para el 50° Congreso en Puerto Vallarta.",
   };
 }
 
 function emptyThread(): ChatThread {
   return {
     id: uid(),
-    title: "Consulta nueva",
+    title: "Nueva sesión",
     agentSessionId: null,
     messages: [welcomeMsg()],
     updatedAt: Date.now(),
@@ -86,7 +287,48 @@ function loadThreads(): ChatThread[] {
 
 function titleFromPrompt(prompt: string) {
   const t = prompt.trim().replace(/\s+/g, " ");
-  return t.length > 36 ? `${t.slice(0, 36)}…` : t || "Consulta nueva";
+  return t.length > 42 ? `${t.slice(0, 42)}…` : t || "Nueva sesión";
+}
+
+function sessionMeta(t: ChatThread) {
+  const msgs = t.messages.filter((m) => m.role !== "system");
+  const turns = msgs.filter((m) => m.role === "user").length;
+  const preview =
+    [...msgs].reverse().find((m) => m.role === "assistant" && m.text)?.text ||
+    [...msgs].reverse().find((m) => m.role === "user")?.text ||
+    "Sin mensajes aún";
+  const clean = preview.replace(/\s+/g, " ").trim();
+  return {
+    turns,
+    preview: clean.length > 72 ? `${clean.slice(0, 72)}…` : clean,
+  };
+}
+
+function relativeWhen(ts: number) {
+  const diff = Date.now() - ts;
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "Ahora";
+  if (min < 60) return `Hace ${min} min`;
+  const hrs = Math.floor(min / 60);
+  if (hrs < 24) return `Hace ${hrs} h`;
+  const days = Math.floor(hrs / 24);
+  if (days === 1) return "Ayer";
+  if (days < 7) return `Hace ${days} días`;
+  return new Date(ts).toLocaleDateString("es-MX", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function sessionBucket(ts: number): string {
+  const d = new Date(ts);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startYesterday = startToday - 86400000;
+  if (ts >= startToday) return "Hoy";
+  if (ts >= startYesterday) return "Ayer";
+  if (ts >= startToday - 7 * 86400000) return "Esta semana";
+  return "Anteriores";
 }
 
 async function speakSummary(text: string, summaryHint?: string) {
@@ -139,6 +381,8 @@ export default function App() {
   const [listening, setListening] = useState(false);
   const [voiceOut, setVoiceOut] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [agendaOpen, setAgendaOpen] = useState(false);
+  const [shareHint, setShareHint] = useState<string | null>(null);
   const [weather, setWeather] = useState<{
     temperatureC: number;
     condition: string;
@@ -146,6 +390,7 @@ export default function App() {
   } | null>(null);
   const [health, setHealth] = useState<{ hasApiKey?: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
   const feedRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const inputRef = useRef(input);
@@ -153,6 +398,8 @@ export default function App() {
 
   const active = threads.find((t) => t.id === activeId) || threads[0];
   const hasUserMsgs = !!active?.messages.some((m) => m.role === "user");
+  const userPrompts =
+    active?.messages.filter((m) => m.role === "user").map((m) => m.text) || [];
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
@@ -172,6 +419,13 @@ export default function App() {
       .catch(() => null);
     window.speechSynthesis?.getVoices();
   }, []);
+
+  // Refresh suggestion rotation periodically on landing
+  useEffect(() => {
+    if (hasUserMsgs) return;
+    const id = window.setInterval(() => setTick((n) => n + 1), 45000);
+    return () => clearInterval(id);
+  }, [hasUserMsgs]);
 
   useEffect(() => {
     feedRef.current?.scrollTo({
@@ -248,6 +502,8 @@ export default function App() {
         let full = "";
         let voiceSummary = "";
         let agentSessionId = active.agentSessionId;
+        let places: PlaceCard[] = [];
+        let venue: PlaceCard | null = null;
 
         const handleEvent = (event: string, data: string) => {
           let parsed: Record<string, unknown> = {};
@@ -263,13 +519,29 @@ export default function App() {
               agentSessionId: parsed.sessionId as string,
             }));
           }
+          if (event === "places") {
+            if (Array.isArray(parsed.places)) {
+              places = parsed.places as PlaceCard[];
+            }
+            if (parsed.venue && typeof parsed.venue === "object") {
+              venue = parsed.venue as PlaceCard;
+            }
+            patchActive((t) => ({
+              ...t,
+              messages: t.messages.map((msg) =>
+                msg.id === assistantId
+                  ? { ...msg, places, venue, text: full, streaming: true }
+                  : msg
+              ),
+            }));
+          }
           if (event === "delta" && typeof parsed.text === "string") {
             full += parsed.text;
             patchActive((t) => ({
               ...t,
               messages: t.messages.map((msg) =>
                 msg.id === assistantId
-                  ? { ...msg, text: full, streaming: true }
+                  ? { ...msg, text: full, places, venue, streaming: true }
                   : msg
               ),
             }));
@@ -292,6 +564,8 @@ export default function App() {
                       text: finalText,
                       streaming: false,
                       voiceSummary,
+                      places,
+                      venue,
                     }
                   : msg
               ),
@@ -394,53 +668,46 @@ export default function App() {
     }
   };
 
-  const suggestions = useMemo(
-    () => [
-      {
-        label: "Clima y vestimenta",
-        prompt: "¿Qué clima hay ahora en el CIC y qué ropa llevo a la siguiente sesión?",
-      },
-      {
-        label: "Comer cerca",
-        prompt: "Recomiéndame restaurantes cerca del CIC para después de una plenaria",
-      },
-      {
-        label: "Mesa Directiva",
-        prompt: "¿Quién integra la Mesa Directiva CMUN y quién es el presidente?",
-      },
-      {
-        label: "Miércoles 3",
-        prompt: "Resume el programa del miércoles 3 de junio del 50° Congreso",
-      },
-    ],
-    []
-  );
+  const suggestions = useMemo(() => {
+    void tick;
+    return pickSuggestions(userPrompts, 4);
+  }, [userPrompts, tick, activeId]);
 
   const sortedThreads = useMemo(
     () => [...threads].sort((a, b) => b.updatedAt - a.updatedAt),
     [threads]
   );
 
+  const sessionGroups = useMemo(() => {
+    const order = ["Hoy", "Ayer", "Esta semana", "Anteriores"];
+    const map = new Map<string, ChatThread[]>();
+    for (const t of sortedThreads) {
+      const b = sessionBucket(t.updatedAt);
+      if (!map.has(b)) map.set(b, []);
+      map.get(b)!.push(t);
+    }
+    return order
+      .filter((k) => map.has(k))
+      .map((label) => ({ label, items: map.get(label)! }));
+  }, [sortedThreads]);
+
   return (
     <div className="shell">
       <div className="atmosphere" aria-hidden />
-      <img
-        className="seal-watermark"
-        src="/cmu-seal.png"
-        alt=""
-        aria-hidden
-      />
 
       <header className="masthead">
         <div className="masthead-brand">
           <img
-            className="logo-lockup"
-            src="/cmu-logo-lockup.png"
-            alt="Colegio Mexicano de Urología Nacional"
+            className="logo-seal"
+            src="/cmu-seal.png?v=3"
+            alt=""
+            width={52}
+            height={52}
           />
-          <div className="product-line">
-            <span className="product-name">Asistente del Congreso</span>
-            <span className="product-edition">50° CMU · Puerto Vallarta 2026</span>
+          <div className="wordmark">
+            <span className="wm-small">Colegio Mexicano de</span>
+            <span className="wm-strong">Urología Nacional</span>
+            <span className="wm-product">Asistente · 50° Congreso 2026</span>
           </div>
         </div>
         <div className="masthead-meta">
@@ -455,69 +722,141 @@ export default function App() {
           <button
             type="button"
             className="ghost-btn"
-            onClick={() => setHistoryOpen((v) => !v)}
+            onClick={() => {
+              setAgendaOpen((v) => !v);
+              setHistoryOpen(false);
+            }}
           >
-            Consultas
+            Mi agenda
           </button>
-          <button type="button" className="ghost-btn primary-ghost" onClick={newChat}>
+          <button
+            type="button"
+            className="ghost-btn"
+            onClick={() => {
+              setHistoryOpen((v) => !v);
+              setAgendaOpen(false);
+            }}
+          >
+            Sesiones
+          </button>
+          <button
+            type="button"
+            className="ghost-btn primary-ghost"
+            onClick={newChat}
+          >
             Nueva
           </button>
         </div>
       </header>
 
+      <MyAgendaPanel
+        open={agendaOpen}
+        onClose={() => setAgendaOpen(false)}
+        onAsk={(p) => {
+          setAgendaOpen(false);
+          void send(p);
+        }}
+      />
+
       {historyOpen && (
-        <div className="history-panel" role="dialog" aria-label="Consultas">
+        <div className="history-panel" role="dialog" aria-label="Sesiones">
           <div className="history-head">
-            <h2>Tus consultas</h2>
-            <button type="button" className="text-btn" onClick={() => setHistoryOpen(false)}>
-              Cerrar
-            </button>
+            <div>
+              <h2>Sesiones</h2>
+              <p className="history-sub">
+                {sortedThreads.length} conversación
+                {sortedThreads.length === 1 ? "" : "es"}
+              </p>
+            </div>
+            <div className="history-actions">
+              <button
+                type="button"
+                className="text-btn accent"
+                onClick={() => {
+                  newChat();
+                  setHistoryOpen(false);
+                }}
+              >
+                Nueva sesión
+              </button>
+              <button
+                type="button"
+                className="text-btn"
+                onClick={() => setHistoryOpen(false)}
+                aria-label="Cerrar"
+              >
+                Cerrar
+              </button>
+            </div>
           </div>
-          <ul>
-            {sortedThreads.map((t) => (
-              <li key={t.id} className={t.id === activeId ? "on" : ""}>
-                <button
-                  type="button"
-                  className="hist-open"
-                  onClick={() => {
-                    setActiveId(t.id);
-                    setHistoryOpen(false);
-                  }}
-                >
-                  {t.title}
-                </button>
-                <button
-                  type="button"
-                  className="hist-del"
-                  onClick={() => deleteChat(t.id)}
-                  aria-label="Eliminar"
-                >
-                  Eliminar
-                </button>
-              </li>
+          <div className="history-list">
+            {sessionGroups.map((group) => (
+              <section key={group.label} className="history-group">
+                <h3 className="history-group-label">{group.label}</h3>
+                <ul>
+                  {group.items.map((t) => {
+                    const meta = sessionMeta(t);
+                    return (
+                      <li key={t.id} className={t.id === activeId ? "on" : ""}>
+                        <button
+                          type="button"
+                          className="hist-open"
+                          onClick={() => {
+                            setActiveId(t.id);
+                            setHistoryOpen(false);
+                          }}
+                        >
+                          <span className="hist-title">{t.title}</span>
+                          <span className="hist-preview">{meta.preview}</span>
+                          <span className="hist-meta">
+                            <span>{relativeWhen(t.updatedAt)}</span>
+                            <span>·</span>
+                            <span>
+                              {meta.turns} mensaje
+                              {meta.turns === 1 ? "" : "s"}
+                            </span>
+                          </span>
+                        </button>
+                        <button
+                          type="button"
+                          className="hist-del"
+                          aria-label="Eliminar sesión"
+                          title="Eliminar sesión"
+                          onClick={() => deleteChat(t.id)}
+                        >
+                          <svg viewBox="0 0 24 24" aria-hidden="true">
+                            <path
+                              fill="currentColor"
+                              d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"
+                            />
+                          </svg>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
             ))}
-          </ul>
+          </div>
         </div>
       )}
 
       <main className="workspace">
         {!hasUserMsgs ? (
           <section className="landing">
-            <img className="landing-seal" src="/cmu-seal.png" alt="" />
             <h1 className="landing-title">
               Tu guía en el
               <br />
               <em>Congreso CMU</em>
             </h1>
             <p className="landing-lede">
-              Programa, ponentes, clima en el CIC y lugares para comer — en una
-              sola consulta.
+              Las sugerencias cambian según lo que vas preguntando.
             </p>
             {!IS_STATIC && (
               <div className="action-rail">
                 {suggestions.map((s) => (
                   <button
-                    key={s.label}
+                    key={s.label + s.prompt}
                     type="button"
                     className="action-tile"
                     disabled={busy}
@@ -528,12 +867,6 @@ export default function App() {
                   </button>
                 ))}
               </div>
-            )}
-            {IS_STATIC && (
-              <p className="landing-note">
-                Esta vista pública es solo presentación. El asistente completo
-                corre en local o Codespace.
-              </p>
             )}
           </section>
         ) : (
@@ -546,20 +879,54 @@ export default function App() {
                     <span className="briefing-who">
                       {m.role === "user" ? "Tu consulta" : "Asistente CMU"}
                     </span>
-                    {m.role === "assistant" && !m.streaming && m.text && (
-                      <button
-                        type="button"
-                        className="text-btn"
-                        onClick={() =>
-                          void speakSummary(m.text, m.voiceSummary)
-                        }
-                      >
-                        Escuchar resumen
-                      </button>
-                    )}
                   </header>
                   {m.role === "assistant" ? (
-                    <MarkdownBody text={m.text} streaming={m.streaming} />
+                    <>
+                      <MarkdownBody text={m.text} streaming={m.streaming} />
+                      {(m.places?.length || m.venue) && (
+                        <PlaceMaps
+                          places={m.places || []}
+                          venue={m.venue}
+                        />
+                      )}
+                      {!m.streaming && m.text && (
+                        <div className="msg-actions">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void downloadResponsePdf(
+                                "Respuesta Asistente CMU",
+                                m.text
+                              ).catch((e) =>
+                                setError(
+                                  e instanceof Error
+                                    ? e.message
+                                    : "No se pudo generar PDF"
+                                )
+                              );
+                            }}
+                          >
+                            Descargar PDF
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void shareOrCopy(
+                                "Asistente CMU",
+                                m.text
+                              ).then((r) =>
+                                setShareHint(
+                                  r === "shared" ? "Compartido" : "Copiado"
+                                )
+                              );
+                              setTimeout(() => setShareHint(null), 2000);
+                            }}
+                          >
+                            Compartir
+                          </button>
+                        </div>
+                      )}
+                    </>
                   ) : (
                     <p
                       className="user-query"
@@ -570,64 +937,114 @@ export default function App() {
                   )}
                 </article>
               ))}
+            {!busy && !IS_STATIC && (
+              <div className="next-up">
+                <p className="next-up-label">Sugerido para ti</p>
+                <div className="next-up-row">
+                  {suggestions.slice(0, 3).map((s) => (
+                    <button
+                      key={s.label}
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void send(s.prompt)}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             {busy && (
-              <p className="status-line">Consultando programa, clima y lugares…</p>
+              <p className="status-line">
+                Consultando programa, clima y lugares…
+              </p>
             )}
           </section>
         )}
       </main>
 
       {error && <p className="error-line">{error}</p>}
+      {shareHint && <p className="share-hint">{shareHint}</p>}
 
-      <footer className="command">
-        <div className="command-inner">
+      <footer className="app-dock">
+        <div className="dock-bar">
           <button
             type="button"
-            className={`cmd-mic ${listening ? "hot" : ""}`}
+            className={`dock-icon-btn dock-mic ${listening ? "hot" : ""}`}
             onClick={toggleListen}
             disabled={IS_STATIC}
-            title="Dictar"
+            aria-label={listening ? "Detener micrófono" : "Hablar"}
+            title={listening ? "Detener" : "Hablar"}
           >
-            {listening ? "…" : "Mic"}
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M12 14a3 3 0 0 0 3-3V6a3 3 0 0 0-6 0v5a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.92V21h2v-3.08A7 7 0 0 0 19 11h-2z"
+              />
+            </svg>
           </button>
-          <textarea
-            value={input}
-            disabled={IS_STATIC}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="Escribe tu consulta al asistente CMU…"
-            rows={1}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                void send(input);
-              }
-            }}
-          />
-          <label className="cmd-voice">
-            <input
-              type="checkbox"
-              checked={voiceOut}
+          <div className="dock-field">
+            <textarea
+              value={input}
               disabled={IS_STATIC}
-              onChange={(e) => {
-                setVoiceOut(e.target.checked);
-                if (!e.target.checked) window.speechSynthesis?.cancel();
+              onChange={(e) => setInput(e.target.value)}
+              placeholder="Escribe o dicta tu consulta…"
+              rows={1}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  void send(input);
+                }
               }}
             />
-            Voz
-          </label>
+          </div>
           <button
             type="button"
-            className="cmd-send"
+            className={`dock-icon-btn dock-speaker ${voiceOut ? "on" : ""}`}
+            disabled={IS_STATIC}
+            aria-label={voiceOut ? "Silenciar voz" : "Activar voz"}
+            title={voiceOut ? "Voz activada" : "Voz desactivada"}
+            onClick={() => {
+              const next = !voiceOut;
+              setVoiceOut(next);
+              if (!next) window.speechSynthesis?.cancel();
+            }}
+          >
+            {voiceOut ? (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M3 9v6h4l5 5V4L7 9H3zm13.5 3a4.5 4.5 0 0 0-2.5-4.03v8.05A4.5 4.5 0 0 0 16.5 12zM14 3.23v2.06a7 7 0 0 1 0 13.42v2.06a9 9 0 0 0 0-17.54z"
+                />
+              </svg>
+            ) : (
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M16.5 12a4.5 4.5 0 0 0-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51A8.8 8.8 0 0 0 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3 3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06a9 9 0 0 0 3.69-1.81L19.73 21 21 19.73 4.27 3zM12 4 9.91 6.09 12 8.18V4z"
+                />
+              </svg>
+            )}
+          </button>
+          <button
+            type="button"
+            className="dock-icon-btn dock-send"
             disabled={IS_STATIC || busy || !input.trim()}
+            aria-label="Enviar"
+            title="Enviar"
             onClick={() => void send(input)}
           >
-            Consultar
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="currentColor"
+                d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"
+              />
+            </svg>
           </button>
         </div>
-        <p className="cmd-footnote">
-          Colegio Mexicano de Urología Nacional · Asistente del 50° Congreso
-          {!IS_STATIC && health?.hasApiKey === false && " · Falta CURSOR_API_KEY"}
-        </p>
+        {!IS_STATIC && health?.hasApiKey === false && (
+          <p className="dock-note">Falta CURSOR_API_KEY en .env</p>
+        )}
       </footer>
     </div>
   );

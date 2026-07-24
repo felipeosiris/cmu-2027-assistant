@@ -2,6 +2,8 @@
 
 Índice de personas documentadas desde el programa del [[Congreso-2026/50-Congreso-CMU-2026|50° Congreso CMU 2026]] y la [[Congreso-2026/Mesa-Directiva-CMUN-2025-2027|Mesa Directiva]].
 
+> Fotos de Mesa Directiva: carpeta [[fotos/README|Personas/fotos]] (extraídas del programa PDF).
+
 ## Mesa Directiva
 
 - [[Andrés Hernández Porras]] — Presidente

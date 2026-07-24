@@ -1,6 +1,12 @@
 # Alysa Yee
 
 **Rol:** Ponente
+**Enfoque:** Medicina sexual femenina
+**Día / bloque:** 2026-06-03
+**Sede:** CIC Puerto Vallarta
+**Foto:** pendiente (no venía como retrato suelto en el PDF del programa)
+
+**Rol:** Ponente
 
 Medicina sexual femenina; trastornos de deseo hipoactivo
 

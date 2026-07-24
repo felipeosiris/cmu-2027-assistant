@@ -1,6 +1,14 @@
 # Stacy Loeb
 
 **Rol:** Ponente internacional
+**Enfoque:** Tamizaje y vigilancia activa
+**Día / bloque:** 2026-06-05
+**Sede:** CIC Puerto Vallarta
+**Foto:** `Personas/fotos/web/Stacy-Loeb.jpg`
+
+![[fotos/web/Stacy-Loeb.jpg]]
+
+**Rol:** Ponente internacional
 
 Tamizaje y vigilancia activa 2026
 

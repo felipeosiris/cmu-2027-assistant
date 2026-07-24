@@ -1,5 +1,9 @@
 # Andrés Hernández Porras
 
+![[fotos/Andres-Hernandez-Porras.jpg]]
+
+**Foto:** `Personas/fotos/Andres-Hernandez-Porras.jpg`
+
 **Rol:** Presidente
 
 CMUN 2025-2027

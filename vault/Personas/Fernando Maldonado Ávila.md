@@ -1,5 +1,9 @@
 # Fernando Maldonado Ávila
 
+![[fotos/Fernando-Maldonado-Avila.jpg]]
+
+**Foto:** `Personas/fotos/Fernando-Maldonado-Avila.jpg`
+
 **Rol:** Mesa Directiva
 
 CMUN 2025-2027 · también aparece como Fernando Sebastián Maldonado Ávila (coordinación inauguración área comercial)

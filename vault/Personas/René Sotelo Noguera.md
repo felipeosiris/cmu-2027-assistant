@@ -1,6 +1,12 @@
 # René Sotelo Noguera
 
 **Rol:** Ponente internacional
+**Enfoque:** Prostatectomía de rescate; IA en cirugía robótica
+**Día / bloque:** 2026-06-03
+**Sede:** CIC Puerto Vallarta
+**Foto:** pendiente (no venía como retrato suelto en el PDF del programa)
+
+**Rol:** Ponente internacional
 
 Prostatectomía radical de rescate; IA en cirugía robótica
 

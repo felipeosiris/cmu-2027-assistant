@@ -9,10 +9,32 @@ import { Communicate } from "edge-tts-universal";
 import { v4 as uuidv4 } from "uuid";
 import {
   buildLiveContext,
+  fetchNearbyPlaces,
   fetchNearbyRestaurants,
   fetchWeather,
+  cicVenuePlace,
   voiceSummaryFromMarkdown,
 } from "./tools.js";
+import {
+  buildMedicalContext,
+  searchClinicalTrials,
+  searchPubMed,
+  searchRxNorm,
+  searchOpenFdaLabel,
+} from "./medical.js";
+import {
+  CONGRESS,
+  ROOMS,
+  SESSIONS,
+  SPEAKER_FICHAS,
+  SPONSORS,
+  getAgendaAt,
+  findRoom,
+  findSessions,
+  findSponsors,
+} from "./program.js";
+import { buildPdfBuffer } from "./pdfExport.js";
+import { enrichSpeakersWithPhotos } from "./speakerPhotos.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -40,14 +62,19 @@ const sessions = new Map<string, Session>();
 const SYSTEM_HINT = `
 Eres el Asistente CMU 2027: guía inteligente y PROACTIVO del Plan Estratégico y del 50° Congreso CMU (Puerto Vallarta, 2–6 jun 2026).
 
-Trabajas con el filesystem de la carpeta CMU-2027 (cwd). Lee notas markdown. También recibirás bloques de DATOS EN VIVO (clima Open-Meteo y restaurantes Google Places) — úsalos; no inventes clima ni ratings.
+Trabajas con el filesystem CMU-2027 (cwd) y DATOS EN VIVO (clima, sede CIC, lugares con mapas, programa estructurado con horarios/salones, patrocinadores, fichas de ponentes, y APIs médicas: RxNorm, OpenFDA, ClinicalTrials.gov, PubMed). No inventes clima, ratings, coordenadas, horarios ni datos clínicos.
 
 Reglas:
-- Español claro y directo. Empieza SIEMPRE con 1–2 frases de veredicto útil (esto es lo que se leerá en voz).
-- Sé proactivo: si hay calor, sugiere ropa; si hay hueco entre sesiones, sugiere comida cercana; si preguntan por una ponencia, cruza programa + persona + clima/comida si aporta.
-- Prioriza: Congreso-2026/, Personas/, APIs/APIs-externas.md, CMU-2027.md, Vision, etc.
-- Listas/comparativas → tablas markdown. Gráficas → \`\`\`mermaid (pie, flowchart, xychart-beta) + tabla.
-- No inventes horarios ni nombres que no estén en la bóveda o en los datos en vivo.
+- Español claro. Empieza con 1–2 frases de veredicto (se leen en voz).
+- Sé proactivo: clima/ropa, agenda ahora/siguiente, salón de la sesión, patrocinios, ponentes, comer/café, hotel, estacionamiento, farmacia, urgencias, fármacos/ensayos/evidencia.
+- Si hay agenda en vivo: tabla corta de “en curso” y “siguiente” con salón. Di si el reloj es demo.
+- Si preguntan salón (Maito, Quimixto, Caletas, Majahuitas): responde con salón + sesiones ahí.
+- Si preguntan patrocinadores: usa el JSON (Oro/Plata/Bronce/actividades). Astellas/Boston/TENA/Silanes tienen actividades ligadas.
+- Si hay lugares en el JSON en vivo, resume en tabla corta; la UI mostrará mini mapas solos.
+- Si hay datos médicos en vivo: tablas + enlaces + disclaimer una vez; no inventes dosis.
+- Personas/fotos: si hay path de foto, \`![Nombre](/api/vault/...)\`. Si el JSON trae photoHit con confidence≥0.9, USA esa foto (proactivo). Si no hay foto segura, dilo en una frase; no inventes plantillas [FOTO 3x4].
+- Prioriza el índice estructurado del programa sobre inventar horarios del PDF.
+- Listas → tablas. Gráficas → \`\`\`mermaid + tabla.
 - No pegues API keys ni secretos.
 `.trim();
 
@@ -111,6 +138,226 @@ app.get("/api/tools/restaurants", async (_req, res) => {
   }
 });
 
+app.get("/api/tools/nearby", async (req, res) => {
+  try {
+    const type = String(req.query.type || "restaurant") as
+      | "restaurant"
+      | "cafe"
+      | "lodging"
+      | "parking"
+      | "pharmacy"
+      | "hospital"
+      | "atm";
+    const label = String(req.query.label || type);
+    const places = await fetchNearbyPlaces(type, label);
+    res.json({ venue: cicVenuePlace(), places });
+  } catch (e) {
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "nearby error",
+    });
+  }
+});
+
+app.get("/api/tools/venue", (_req, res) => {
+  res.json(cicVenuePlace());
+});
+
+app.get("/api/tools/medical", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (!q) {
+      res.status(400).json({ error: "falta ?q=" });
+      return;
+    }
+    const bundle = await buildMedicalContext(q);
+    res.json(bundle || { query: q, empty: true });
+  } catch (e) {
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "medical error",
+    });
+  }
+});
+
+app.get("/api/tools/rxnorm", async (req, res) => {
+  try {
+    const name = String(req.query.name || "").trim();
+    if (!name) {
+      res.status(400).json({ error: "falta ?name=" });
+      return;
+    }
+    res.json({ hits: await searchRxNorm(name) });
+  } catch (e) {
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "rxnorm error",
+    });
+  }
+});
+
+app.get("/api/tools/trials", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (!q) {
+      res.status(400).json({ error: "falta ?q=" });
+      return;
+    }
+    res.json({ trials: await searchClinicalTrials(q) });
+  } catch (e) {
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "trials error",
+    });
+  }
+});
+
+app.get("/api/tools/pubmed", async (req, res) => {
+  try {
+    const q = String(req.query.q || "").trim();
+    if (!q) {
+      res.status(400).json({ error: "falta ?q=" });
+      return;
+    }
+    res.json({ papers: await searchPubMed(q) });
+  } catch (e) {
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "pubmed error",
+    });
+  }
+});
+
+app.get("/api/tools/openfda", async (req, res) => {
+  try {
+    const name = String(req.query.name || "").trim();
+    if (!name) {
+      res.status(400).json({ error: "falta ?name=" });
+      return;
+    }
+    res.json({ label: await searchOpenFdaLabel(name) });
+  } catch (e) {
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "openfda error",
+    });
+  }
+});
+
+app.get("/api/program", (_req, res) => {
+  res.json({
+    congress: CONGRESS,
+    rooms: ROOMS,
+    sponsors: SPONSORS,
+    sessions: SESSIONS,
+    speakers: SPEAKER_FICHAS,
+  });
+});
+
+app.get("/api/program/agenda", (req, res) => {
+  const at = req.query.at ? String(req.query.at) : null;
+  res.json(getAgendaAt(at));
+});
+
+app.get("/api/program/rooms", (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (q) {
+    const room = findRoom(q);
+    res.json({
+      room,
+      sessions: findSessions(q).slice(0, 20),
+      rooms: room ? [room] : ROOMS,
+    });
+    return;
+  }
+  res.json({ rooms: ROOMS });
+});
+
+app.get("/api/program/sponsors", (req, res) => {
+  const q = String(req.query.q || "").trim();
+  res.json({ sponsors: findSponsors(q || undefined) });
+});
+
+app.get("/api/program/search", (req, res) => {
+  const q = String(req.query.q || "").trim();
+  if (!q) {
+    res.status(400).json({ error: "falta ?q=" });
+    return;
+  }
+  res.json({ sessions: findSessions(q) });
+});
+
+app.get("/api/program/speakers", async (_req, res) => {
+  try {
+    const speakers = await enrichSpeakersWithPhotos(SPEAKER_FICHAS, VAULT_CWD);
+    res.json({ speakers });
+  } catch (e) {
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "speakers error",
+    });
+  }
+});
+
+app.get("/api/program/speaker-photo", async (req, res) => {
+  try {
+    const name = String(req.query.name || "").trim();
+    if (!name) {
+      res.status(400).json({ error: "falta ?name=" });
+      return;
+    }
+    const { resolveSpeakerPhoto } = await import("./speakerPhotos.js");
+    const existing = SPEAKER_FICHAS.find((s) =>
+      s.name.toLowerCase() === name.toLowerCase()
+    )?.photo;
+    const hit = await resolveSpeakerPhoto(name, VAULT_CWD, existing);
+    res.json({ hit });
+  } catch (e) {
+    res.status(502).json({
+      error: e instanceof Error ? e.message : "photo error",
+    });
+  }
+});
+
+app.post("/api/export/pdf", async (req, res) => {
+  try {
+    const title = String(req.body?.title || "Respuesta Asistente CMU").slice(0, 120);
+    const body = String(req.body?.text || req.body?.body || "").slice(0, 50000);
+    if (!body.trim()) {
+      res.status(400).json({ error: "text vacío" });
+      return;
+    }
+    const pdf = await buildPdfBuffer({ title, body });
+    const safe = title.replace(/[^\w\-]+/g, "_").slice(0, 40) || "cmu";
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader(
+      "Content-Disposition",
+      `attachment; filename="${safe}.pdf"`
+    );
+    res.send(pdf);
+  } catch (e) {
+    res.status(500).json({
+      error: e instanceof Error ? e.message : "pdf error",
+    });
+  }
+});
+
+/** Sirve archivos de la bóveda (fotos, etc.) de forma segura. */
+app.use("/api/vault", (req, res, next) => {
+  if (req.method !== "GET") {
+    next();
+    return;
+  }
+  const rel = decodeURIComponent(req.path.replace(/^\/+/, ""));
+  if (!rel || rel.includes("..") || path.isAbsolute(rel)) {
+    res.status(400).json({ error: "ruta inválida" });
+    return;
+  }
+  const abs = path.resolve(VAULT_CWD, rel);
+  if (!abs.startsWith(path.resolve(VAULT_CWD) + path.sep)) {
+    res.status(403).json({ error: "fuera de bóveda" });
+    return;
+  }
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
+    res.status(404).json({ error: "no encontrado" });
+    return;
+  }
+  res.sendFile(abs);
+});
+
 /** TTS natural (Edge) — solo resumen corto. */
 app.post("/api/speak", async (req, res) => {
   const raw = String(req.body?.text || "").trim();
@@ -158,8 +405,20 @@ app.post("/api/chat", async (req, res) => {
   };
 
   try {
-    const live = await buildLiveContext(prompt);
-    send("context", { hasLive: Boolean(live) });
+    const live = await buildLiveContext(prompt, VAULT_CWD);
+    send("context", { hasLive: Boolean(live.markdown) });
+    if (live.places.length) {
+      const mapPlaces = live.places
+        .filter((p) => p.category !== "sede")
+        .slice(0, 8);
+      // Solo emitir mapas si hay lugares (o sede cuando la pregunta es de ubicación)
+      if (mapPlaces.length || live.venue) {
+        send("places", {
+          places: mapPlaces,
+          venue: mapPlaces.length ? null : live.venue ?? null,
+        });
+      }
+    }
 
     const session = await getOrCreateSession(sessionId);
     send("session", { sessionId: session.id });
@@ -168,7 +427,7 @@ app.post("/api/chat", async (req, res) => {
 
 ---
 DATOS EN VIVO (úsalos si aplican; no inventes fuera de esto):
-${live || "(sin datos en vivo)"}
+${live.markdown || "(sin datos en vivo)"}
 
 ---
 Pregunta del usuario:
@@ -247,4 +506,5 @@ app.listen(PORT, "0.0.0.0", () => {
   console.log(`API key            → ${API_KEY ? "ok" : "MISSING (.env)"}`);
   console.log(`Places             → ${process.env.GOOGLE_PLACES_API_KEY ? "ok" : "fallback FanPass"}`);
   console.log(`TTS                → ${TTS_VOICE}`);
+  console.log(`Static UI          → ${fs.existsSync(clientDist) ? clientDist : "missing (run npm run build)"}`);
 });

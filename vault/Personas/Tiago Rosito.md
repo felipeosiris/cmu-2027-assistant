@@ -1,6 +1,12 @@
 # Tiago Rosito
 
 **Rol:** Ponente
+**Enfoque:** Uropediatría; vaginoplastia
+**Día / bloque:** 2026-06-03
+**Sede:** CIC Puerto Vallarta
+**Foto:** pendiente (no venía como retrato suelto en el PDF del programa)
+
+**Rol:** Ponente
 
 Uropediatría / reconstructiva: pene oculto, genitoplastia HSC, vaginoplastia
 

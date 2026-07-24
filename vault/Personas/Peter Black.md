@@ -1,6 +1,12 @@
 # Peter Black
 
 **Rol:** Ponente internacional
+**Enfoque:** Cáncer vesical NMIBC / BCG
+**Día / bloque:** 2026-06-04
+**Sede:** CIC Puerto Vallarta
+**Foto:** pendiente (no venía como retrato suelto en el PDF del programa)
+
+**Rol:** Ponente internacional
 
 Cáncer vesical (BCG, ctDNA)
 

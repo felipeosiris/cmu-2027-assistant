@@ -3,14 +3,24 @@ services:
     name: cmu-2027-assistant
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build
+    region: oregon
+    buildCommand: npm ci && npm run build
     startCommand: npm run start
+    healthCheckPath: /api/health
     envVars:
       - key: NODE_VERSION
         value: "22"
-      - key: CURSOR_API_KEY
-        sync: false
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
       - key: VAULT_CWD
         value: /opt/render/project/src/vault
       - key: CURSOR_MODEL
         value: auto
+      - key: CURSOR_API_KEY
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: TTS_VOICE
+        value: es-MX-DaliaNeural

@@ -1,5 +1,9 @@
 # Edgar Beltrán Suárez
 
+![[fotos/Edgar-Beltran-Suarez.jpg]]
+
+**Foto:** `Personas/fotos/Edgar-Beltran-Suarez.jpg`
+
 **Rol:** Mesa Directiva
 
 CMUN 2025-2027 · Coord. día viernes · endourología / NLP / video teatro

@@ -1,5 +1,9 @@
 # Efraín Maldonado Alcaraz
 
+![[fotos/Efrain-Maldonado-Alcaraz.jpg]]
+
+**Foto:** `Personas/fotos/Efrain-Maldonado-Alcaraz.jpg`
+
 **Rol:** Mesa Directiva
 
 CMUN 2025-2027

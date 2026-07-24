@@ -1,6 +1,12 @@
 # Juan Gómez Rivas
 
 **Rol:** Ponente EAU
+**Enfoque:** Cáncer de próstata; EAU
+**Día / bloque:** 2026-06-03, 2026-06-05
+**Sede:** CIC Puerto Vallarta
+**Foto:** pendiente (no venía como retrato suelto en el PDF del programa)
+
+**Rol:** Ponente EAU
 
 Cáncer de próstata sin biopsia; PARPi; recidiva bioquímica PSMA−
 

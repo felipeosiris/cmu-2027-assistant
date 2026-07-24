@@ -1,5 +1,9 @@
 # Hegel T. Santamaría
 
+![[fotos/Hegel-T-Santamaria.jpg]]
+
+**Foto:** `Personas/fotos/Hegel-T-Santamaria.jpg`
+
 **Rol:** Mesa Directiva
 
 CMUN 2025-2027 · Coord. resección en bloque vejiga · desayuno IPI ASAC

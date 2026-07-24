@@ -13,3 +13,8 @@
 | [[Personas/Juan Francisco Lizárraga Salas]] | Mesa Directiva |
 
 Congreso: [[50-Congreso-CMU-2026]]
+
+
+## Fotos
+
+Retratos oficiales extraídos del programa PDF → [[Personas/fotos/README|Personas/fotos]].

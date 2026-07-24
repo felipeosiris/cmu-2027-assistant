@@ -60,9 +60,23 @@ function escapeForMermaid(source: string) {
     .replace(/>/g, "&gt;");
 }
 
-/** Convierte bloques ```mermaid en divs listos para Mermaid. */
+/** Convierte bloques ```mermaid y embeds Obsidian de imagen. */
 export function markdownToHtml(md: string): string {
-  const html = marked.parse(md || "") as string;
+  let src = md || "";
+  // ![[fotos/foo.jpg]] or ![[Personas/fotos/foo.jpg]]
+  src = src.replace(
+    /!\[\[(?:Personas\/)?fotos\/([^\]]+)\]\]/gi,
+    (_m, file: string) =>
+      `![foto](/api/vault/Personas/fotos/${encodeURIComponent(file.trim())})`
+  );
+  // ![[path/to/image.jpg]] generic images in vault
+  src = src.replace(
+    /!\[\[([^\]]+\.(?:jpg|jpeg|png|webp|gif))\]\]/gi,
+    (_m, file: string) =>
+      `![imagen](/api/vault/${file.trim().split("/").map(encodeURIComponent).join("/")})`
+  );
+
+  const html = marked.parse(src) as string;
   return html.replace(
     /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/gi,
     (_m, code: string) => {

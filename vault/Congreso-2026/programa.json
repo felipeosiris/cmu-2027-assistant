@@ -1,0 +1,794 @@
+{
+  "congress": {
+    "name": "50° Congreso CMU 2026",
+    "timezone": "America/Mexico_City",
+    "startDate": "2026-06-02",
+    "endDate": "2026-06-06",
+    "venue": "Centro Internacional de Convenciones de Puerto Vallarta (CIC)",
+    "demoNow": "2026-06-04T10:20:00"
+  },
+  "rooms": [
+    {
+      "id": "maito",
+      "name": "Salón Maito",
+      "shortName": "Maito",
+      "venue": "CIC Puerto Vallarta",
+      "tip": "Uno de los salones principales del CIC; suele albergar cursos, simposios y sesiones clínicas."
+    },
+    {
+      "id": "quimixto",
+      "name": "Salón Quimixto",
+      "shortName": "Quimixto",
+      "venue": "CIC Puerto Vallarta",
+      "tip": "Salón CIC para reuniones seccionales, NLP/URS, cáncer vesical y simposios."
+    },
+    {
+      "id": "caletas",
+      "name": "Salón Caletas",
+      "shortName": "Caletas",
+      "venue": "CIC Puerto Vallarta",
+      "tip": "Video teatro (robótica / endourología) y reuniones académicas."
+    },
+    {
+      "id": "majahuitas",
+      "name": "Salón Majahuitas",
+      "shortName": "Majahuitas",
+      "venue": "CIC Puerto Vallarta",
+      "tip": "Andrología, dermatología urológica, desayunos con el experto y asamblea."
+    },
+    {
+      "id": "cic-general",
+      "name": "CIC (áreas comunes / comercial)",
+      "shortName": "CIC",
+      "venue": "CIC Puerto Vallarta",
+      "tip": "Registro, área comercial, inauguración, cóctel y cena de clausura."
+    },
+    {
+      "id": "hospital-33",
+      "name": "Hospital 33 IMSS",
+      "shortName": "Hosp. 33",
+      "venue": "Puerto Vallarta (externo)",
+      "tip": "Curso hands-on HoLEP / ThuLEP (pre-congreso)."
+    },
+    {
+      "id": "hosp-nuevo-vallarta",
+      "name": "Hospital Nuevo Vallarta",
+      "shortName": "Hosp. N. Vallarta",
+      "venue": "Nuevo Vallarta (externo)",
+      "tip": "Curso de biopsia de próstata (trans-congreso)."
+    },
+    {
+      "id": "el-tigre",
+      "name": "Campo de golf El Tigre",
+      "shortName": "El Tigre",
+      "venue": "Nuevo Vallarta",
+      "tip": "Torneo de golf del congreso (2 de junio)."
+    }
+  ],
+  "sponsors": [
+    {
+      "name": "Liomont",
+      "tier": "oro",
+      "notes": "Patrocinador Oro (logos programa PDF)."
+    },
+    {
+      "name": "Senosiain",
+      "tier": "oro",
+      "notes": "Patrocinador Oro."
+    },
+    {
+      "name": "Siegfried Rhein",
+      "tier": "oro",
+      "notes": "Patrocinador Oro."
+    },
+    {
+      "name": "Johnson & Johnson Innovative Medicine",
+      "tier": "plata"
+    },
+    {
+      "name": "Global Care Products",
+      "tier": "plata"
+    },
+    {
+      "name": "PiSA Farmacéutica",
+      "tier": "plata"
+    },
+    {
+      "name": "AstraZeneca",
+      "tier": "plata"
+    },
+    {
+      "name": "Boston Scientific",
+      "tier": "plata",
+      "activities": [
+        "Taller: terapia de vapor en HBP (jueves 4) · Quimixto"
+      ]
+    },
+    {
+      "name": "Endoscopia Guadalajara",
+      "tier": "plata"
+    },
+    {
+      "name": "Megalabs",
+      "tier": "bronce"
+    },
+    {
+      "name": "Grünenthal",
+      "tier": "bronce"
+    },
+    {
+      "name": "Exeltis",
+      "tier": "bronce"
+    },
+    {
+      "name": "ASAC México",
+      "tier": "bronce",
+      "activities": [
+        "Desayuno con el experto IPI ASAC · inmunidad uroepitelio (jueves 4) · Maito"
+      ]
+    },
+    {
+      "name": "TENA",
+      "tier": "bronce",
+      "activities": [
+        "Desayuno con el experto · continencia (jueves 4) · Majahuitas"
+      ]
+    },
+    {
+      "name": "Astellas",
+      "tier": "actividad",
+      "activities": [
+        "Martes 2 · 11:00–13:00 · Cáncer de próstata avanzado · Maito",
+        "Miércoles 3 · Simposio Astellas · actualización NCCN (Héctor Manuel Sánchez López)"
+      ],
+      "notes": "Patrocinio de sesiones clínicas (no aparece como Oro/Plata/Bronce en logos)."
+    },
+    {
+      "name": "Silanes",
+      "tier": "medical-plus",
+      "activities": [
+        "Viernes 5 · Simposio Silanes · Ana Silvia Vidal Brant"
+      ]
+    },
+    {
+      "name": "Bayer",
+      "tier": "medical-plus"
+    },
+    {
+      "name": "Siemens Healthineers",
+      "tier": "medical-plus"
+    },
+    {
+      "name": "SaludDigna",
+      "tier": "medical-plus"
+    }
+  ],
+  "sessions": [
+    {
+      "id": "2026-06-02-holep",
+      "day": "2026-06-02",
+      "start": "08:00",
+      "end": "17:00",
+      "title": "Curso pre-congreso HoLEP / ThuLEP",
+      "roomId": "hospital-33",
+      "track": "Pre-congreso",
+      "tags": [
+        "hbp",
+        "laser",
+        "hands-on"
+      ]
+    },
+    {
+      "id": "2026-06-02-infecciones",
+      "day": "2026-06-02",
+      "start": "08:00",
+      "end": "17:00",
+      "title": "Manejo avanzado de infecciones",
+      "roomId": "maito",
+      "track": "Pre-congreso",
+      "tags": [
+        "infecciones"
+      ]
+    },
+    {
+      "id": "2026-06-02-dermato",
+      "day": "2026-06-02",
+      "start": "07:00",
+      "end": "10:20",
+      "title": "Dermatología urológica",
+      "roomId": "majahuitas",
+      "track": "Pre-congreso"
+    },
+    {
+      "id": "2026-06-02-andrologia-am",
+      "day": "2026-06-02",
+      "start": "08:00",
+      "end": "09:00",
+      "title": "Andrología (pre-congreso)",
+      "roomId": "majahuitas",
+      "track": "Andrología"
+    },
+    {
+      "id": "2026-06-02-astellas",
+      "day": "2026-06-02",
+      "start": "11:00",
+      "end": "13:00",
+      "title": "Cáncer de próstata avanzado",
+      "roomId": "maito",
+      "track": "Oncología",
+      "sponsor": "Astellas",
+      "tags": [
+        "prostata",
+        "oncologia",
+        "astellas"
+      ]
+    },
+    {
+      "id": "2026-06-02-registro",
+      "day": "2026-06-02",
+      "start": "13:00",
+      "end": "20:00",
+      "title": "Registro de congresistas y acompañantes",
+      "roomId": "cic-general",
+      "track": "Logística"
+    },
+    {
+      "id": "2026-06-02-jalisco",
+      "day": "2026-06-02",
+      "start": "13:00",
+      "end": "14:00",
+      "title": "Reunión Colegio Jaliscience de Urología",
+      "roomId": "quimixto",
+      "track": "Reuniones"
+    },
+    {
+      "id": "2026-06-02-qro",
+      "day": "2026-06-02",
+      "start": "13:30",
+      "end": "15:40",
+      "title": "Sociedad Urológica de Querétaro — HoLEP vs ThuFLEP",
+      "roomId": "caletas",
+      "track": "Reuniones",
+      "tags": [
+        "hbp",
+        "laser"
+      ]
+    },
+    {
+      "id": "2026-06-02-golf",
+      "day": "2026-06-02",
+      "start": "07:00",
+      "end": "14:00",
+      "title": "Torneo de golf",
+      "roomId": "el-tigre",
+      "track": "Social"
+    },
+    {
+      "id": "2026-06-03-registro",
+      "day": "2026-06-03",
+      "start": "07:00",
+      "end": "16:00",
+      "title": "Registro",
+      "roomId": "cic-general",
+      "track": "Logística"
+    },
+    {
+      "id": "2026-06-03-uropediatria",
+      "day": "2026-06-03",
+      "start": "08:00",
+      "end": "10:30",
+      "title": "Uropediatría",
+      "roomId": "maito",
+      "track": "Uropediatría",
+      "speakers": [
+        "Tiago Rosito",
+        "Celeste Alston"
+      ],
+      "coordinators": [
+        "Karina Meza Ocaña",
+        "Carolina Rojas Ramírez"
+      ],
+      "tags": [
+        "pediatria"
+      ]
+    },
+    {
+      "id": "2026-06-03-andrologia",
+      "day": "2026-06-03",
+      "start": "10:00",
+      "end": "13:15",
+      "title": "Andrología — prótesis, medicina sexual, IA robótica",
+      "roomId": "cic-general",
+      "track": "Andrología",
+      "speakers": [
+        "Alejandro Carvajal Obando",
+        "Alysa Yee",
+        "René Sotelo Noguera"
+      ],
+      "tags": [
+        "andrologia",
+        "robotica"
+      ]
+    },
+    {
+      "id": "2026-06-03-sotelo-rescate",
+      "day": "2026-06-03",
+      "start": "11:15",
+      "end": "11:45",
+      "title": "Prostatectomía radical de rescate en escenarios complejos (estenosis / fístulas)",
+      "roomId": "cic-general",
+      "track": "Plenaria",
+      "speakers": [
+        "René Sotelo Noguera"
+      ],
+      "tags": [
+        "prostata",
+        "robotica"
+      ]
+    },
+    {
+      "id": "2026-06-03-sotelo-ia",
+      "day": "2026-06-03",
+      "start": "11:45",
+      "end": "12:15",
+      "title": "IA en cirugía robótica: complicaciones",
+      "roomId": "cic-general",
+      "track": "Plenaria",
+      "speakers": [
+        "René Sotelo Noguera"
+      ],
+      "tags": [
+        "ia",
+        "robotica"
+      ]
+    },
+    {
+      "id": "2026-06-03-astellas",
+      "day": "2026-06-03",
+      "start": "12:15",
+      "end": "13:15",
+      "title": "Simposio Astellas — actualización NCCN",
+      "roomId": "cic-general",
+      "track": "Simposio",
+      "speakers": [
+        "Héctor Manuel Sánchez López"
+      ],
+      "sponsor": "Astellas",
+      "tags": [
+        "astellas",
+        "prostata",
+        "nccn"
+      ]
+    },
+    {
+      "id": "2026-06-03-comercial",
+      "day": "2026-06-03",
+      "start": "13:15",
+      "end": "13:45",
+      "title": "Inauguración área comercial / receso café",
+      "roomId": "cic-general",
+      "track": "Comercial"
+    },
+    {
+      "id": "2026-06-03-curso-pedia",
+      "day": "2026-06-03",
+      "start": "15:00",
+      "end": "17:30",
+      "title": "Curso trans-congreso: Pediatría",
+      "roomId": "maito",
+      "track": "Cursos",
+      "coordinators": [
+        "Karina Meza Ocaña",
+        "Carolina Rojas Ramírez"
+      ]
+    },
+    {
+      "id": "2026-06-03-curso-robot",
+      "day": "2026-06-03",
+      "start": "15:00",
+      "end": "17:30",
+      "title": "Video teatro robótica",
+      "roomId": "caletas",
+      "track": "Cursos",
+      "coordinators": [
+        "Alejandro Sierra Torres"
+      ]
+    },
+    {
+      "id": "2026-06-03-curso-nlp",
+      "day": "2026-06-03",
+      "start": "15:00",
+      "end": "17:30",
+      "title": "NLP / URS flexible",
+      "roomId": "quimixto",
+      "track": "Cursos",
+      "coordinators": [
+        "Edgar Beltrán Suárez"
+      ]
+    },
+    {
+      "id": "2026-06-03-curso-nefrectomia",
+      "day": "2026-06-03",
+      "start": "15:00",
+      "end": "17:30",
+      "title": "Nefrectomía parcial",
+      "roomId": "majahuitas",
+      "track": "Cursos",
+      "coordinators": [
+        "Gonzalo Vitagliano"
+      ],
+      "speakers": [
+        "Gonzalo Vitagliano"
+      ]
+    },
+    {
+      "id": "2026-06-03-inauguracion",
+      "day": "2026-06-03",
+      "start": "19:00",
+      "end": "23:00",
+      "title": "Ceremonia de inauguración y cóctel",
+      "roomId": "cic-general",
+      "track": "Social"
+    },
+    {
+      "id": "2026-06-04-registro",
+      "day": "2026-06-04",
+      "start": "07:00",
+      "end": "16:00",
+      "title": "Registro",
+      "roomId": "cic-general",
+      "track": "Logística"
+    },
+    {
+      "id": "2026-06-04-tena",
+      "day": "2026-06-04",
+      "start": "07:30",
+      "end": "08:30",
+      "title": "Desayuno con el experto TENA — continencia",
+      "roomId": "majahuitas",
+      "track": "Desayuno",
+      "sponsor": "TENA",
+      "speakers": [
+        "Daniel Camaou",
+        "Melissa Nieto"
+      ]
+    },
+    {
+      "id": "2026-06-04-asac",
+      "day": "2026-06-04",
+      "start": "07:30",
+      "end": "08:30",
+      "title": "Desayuno IPI ASAC — inmunidad uroepitelio",
+      "roomId": "maito",
+      "track": "Desayuno",
+      "sponsor": "ASAC México",
+      "speakers": [
+        "Hegel T. Santamaría",
+        "Antonio Esqueda Mendoza"
+      ]
+    },
+    {
+      "id": "2026-06-04-boston",
+      "day": "2026-06-04",
+      "start": "09:00",
+      "end": "10:00",
+      "title": "Taller Boston Scientific — terapia de vapor en HBP",
+      "roomId": "quimixto",
+      "track": "Taller",
+      "sponsor": "Boston Scientific",
+      "speakers": [
+        "Carlos Méndez Probst",
+        "Reyes Vallejo"
+      ],
+      "tags": [
+        "hbp",
+        "boston"
+      ]
+    },
+    {
+      "id": "2026-06-04-hpb",
+      "day": "2026-06-04",
+      "start": "08:15",
+      "end": "10:00",
+      "title": "HPB / enucleación (HoLEP, Thulio, BipolEP, DISS)",
+      "roomId": "cic-general",
+      "track": "HPB",
+      "speakers": [
+        "Sascha Ahyai",
+        "Hugo López Ramos",
+        "José Ramón Pérez Carral",
+        "Thiago Sato",
+        "Tim Large",
+        "John Denstedt"
+      ],
+      "coordinators": [
+        "Ricardo Leal Marroquín",
+        "Daniel Vázquez Pérez"
+      ],
+      "tags": [
+        "hbp",
+        "laser"
+      ]
+    },
+    {
+      "id": "2026-06-04-vejiga",
+      "day": "2026-06-04",
+      "start": "10:45",
+      "end": "13:00",
+      "title": "Cáncer de vejiga (NMIBC, BCG, terapias intravesicales)",
+      "roomId": "cic-general",
+      "track": "Oncología",
+      "speakers": [
+        "Joan Palou Redorta",
+        "Gustavo Martín Villoldo",
+        "Peter Black",
+        "Félix Guerrero Ramos",
+        "Steven Campbell"
+      ],
+      "tags": [
+        "vejiga",
+        "oncologia"
+      ]
+    },
+    {
+      "id": "2026-06-04-renal",
+      "day": "2026-06-04",
+      "start": "13:30",
+      "end": "15:00",
+      "title": "Cáncer renal (enucleación robótica, nefrectomía parcial, metastatectomía)",
+      "roomId": "cic-general",
+      "track": "Oncología",
+      "speakers": [
+        "Joan Palou Redorta",
+        "Karim Touijer",
+        "Steven Campbell",
+        "Gonzalo Vitagliano"
+      ],
+      "tags": [
+        "renal",
+        "robotica"
+      ]
+    },
+    {
+      "id": "2026-06-05-registro",
+      "day": "2026-06-05",
+      "start": "08:00",
+      "end": "16:00",
+      "title": "Registro",
+      "roomId": "cic-general",
+      "track": "Logística"
+    },
+    {
+      "id": "2026-06-05-endo",
+      "day": "2026-06-05",
+      "start": "08:30",
+      "end": "10:30",
+      "title": "Endourología / litiasis (láseres, DISS, FANS)",
+      "roomId": "cic-general",
+      "track": "Endourología",
+      "speakers": [
+        "John Denstedt",
+        "Guohua Zeng",
+        "Tim Large",
+        "Hugo López Ramos",
+        "Jorge Gutiérrez Aceves"
+      ],
+      "coordinators": [
+        "Edgar Beltrán Suárez"
+      ],
+      "tags": [
+        "endourologia",
+        "litiasis"
+      ]
+    },
+    {
+      "id": "2026-06-05-prostata",
+      "day": "2026-06-05",
+      "start": "11:00",
+      "end": "13:15",
+      "title": "Cáncer de próstata (vigilancia, PSMA, neoadyuvancia, linfadenectomía)",
+      "roomId": "cic-general",
+      "track": "Oncología",
+      "speakers": [
+        "Stacy Loeb",
+        "Robert Reiter",
+        "Karim Touijer"
+      ],
+      "tags": [
+        "prostata",
+        "psma"
+      ]
+    },
+    {
+      "id": "2026-06-05-avanzado",
+      "day": "2026-06-05",
+      "start": "13:15",
+      "end": "14:30",
+      "title": "Cáncer de próstata avanzado",
+      "roomId": "cic-general",
+      "track": "Oncología",
+      "speakers": [
+        "Rafael Coelho",
+        "Juan Gómez Rivas",
+        "Erick Sierra Díaz"
+      ],
+      "coordinators": [
+        "Itzel Sánchez Ruvalcaba"
+      ],
+      "tags": [
+        "prostata"
+      ]
+    },
+    {
+      "id": "2026-06-05-silanes",
+      "day": "2026-06-05",
+      "start": "14:00",
+      "end": "14:45",
+      "title": "Simposio Silanes",
+      "roomId": "cic-general",
+      "track": "Simposio",
+      "speakers": [
+        "Ana Silvia Vidal Brant"
+      ],
+      "sponsor": "Silanes"
+    },
+    {
+      "id": "2026-06-05-asamblea",
+      "day": "2026-06-05",
+      "start": "13:45",
+      "end": "15:45",
+      "title": "Asamblea General",
+      "roomId": "majahuitas",
+      "track": "Institucional"
+    },
+    {
+      "id": "2026-06-05-cena",
+      "day": "2026-06-05",
+      "start": "20:00",
+      "end": "25:00",
+      "title": "Cena de clausura",
+      "roomId": "cic-general",
+      "track": "Social"
+    },
+    {
+      "id": "2026-06-06-funcional",
+      "day": "2026-06-06",
+      "start": "08:00",
+      "end": "10:30",
+      "title": "Urología funcional / fisiología vesical",
+      "roomId": "cic-general",
+      "track": "Funcional",
+      "speakers": [
+        "Juan Carlos Castaño Botero"
+      ],
+      "tags": [
+        "funcional"
+      ]
+    }
+  ],
+  "speakers": [
+    {
+      "name": "René Sotelo Noguera",
+      "role": "Ponente internacional",
+      "focus": "Prostatectomía de rescate; IA en cirugía robótica",
+      "days": [
+        "2026-06-03"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Joan Palou Redorta",
+      "role": "Ponente internacional",
+      "focus": "Carcinoma urotelial; enucleación renal robótica",
+      "days": [
+        "2026-06-04"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Peter Black",
+      "role": "Ponente internacional",
+      "focus": "Cáncer vesical NMIBC / BCG",
+      "days": [
+        "2026-06-04"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Steven Campbell",
+      "role": "Ponente internacional",
+      "focus": "Cáncer renal; evidencia reciente RCC",
+      "days": [
+        "2026-06-04"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Karim Touijer",
+      "role": "Ponente internacional",
+      "focus": "Nefrectomía parcial; linfadenectomía en era PSMA",
+      "days": [
+        "2026-06-04",
+        "2026-06-05"
+      ],
+      "photo": null
+    },
+    {
+      "name": "John Denstedt",
+      "role": "Ponente internacional",
+      "focus": "Endourología; láseres; DISS/FANS",
+      "days": [
+        "2026-06-04",
+        "2026-06-05"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Guohua Zeng",
+      "role": "Ponente internacional",
+      "focus": "Endourología; debate monitoreo transoperatorio",
+      "days": [
+        "2026-06-05"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Robert Reiter",
+      "role": "Ponente internacional",
+      "focus": "PET-PSMA; neoadyuvancia; prostatectomía guiada por imagen",
+      "days": [
+        "2026-06-05"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Stacy Loeb",
+      "role": "Ponente internacional",
+      "focus": "Tamizaje y vigilancia activa en cáncer de próstata",
+      "days": [
+        "2026-06-05"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Juan Gómez Rivas",
+      "role": "Ponente EAU",
+      "focus": "Cáncer de próstata; EAU",
+      "days": [
+        "2026-06-03",
+        "2026-06-05"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Tiago Rosito",
+      "role": "Ponente",
+      "focus": "Uropediatría; tips vaginoplastia",
+      "days": [
+        "2026-06-03"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Alysa Yee",
+      "role": "Ponente",
+      "focus": "Medicina sexual femenina; deseo sexual hipoactivo",
+      "days": [
+        "2026-06-03"
+      ],
+      "photo": null
+    },
+    {
+      "name": "Andrés Hernández Porras",
+      "role": "Presidente CMUN",
+      "focus": "Mesa Directiva 2025–2027",
+      "days": [
+        "2026-06-02",
+        "2026-06-03",
+        "2026-06-04",
+        "2026-06-05"
+      ],
+      "photo": "Personas/fotos/Andres-Hernandez-Porras.jpg"
+    }
+  ]
+}

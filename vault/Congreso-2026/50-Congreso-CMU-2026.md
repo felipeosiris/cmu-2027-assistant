@@ -33,6 +33,13 @@ Ver [[Mesa-Directiva-CMUN-2025-2027]].
 - [[Viernes-5-junio]] — Endourología, cáncer de próstata, asamblea, cena clausura
 - [[Sabado-6-junio]] — (ver programa PDF si aplica cierre / sesiones finales)
 
+## Índices para el asistente
+
+- [[programa.json]] — horarios/salones/sponsors/speakers (fuente estructurada)
+- [[Salones-CIC]]
+- [[Patrocinadores]]
+- [[Fichas-ponentes]]
+
 ## Temas transversales
 
 Uropediatría · Andrología · Cirugía reconstructiva / género · HPB / enucleación láser · Cáncer vesical · Cáncer renal · Endourología / litiasis · Cáncer de próstata · Robótica · IA

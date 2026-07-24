@@ -1,5 +1,9 @@
 # Juan Francisco Lizárraga Salas
 
+![[fotos/Juan-Francisco-Lizarraga-Salas.jpg]]
+
+**Foto:** `Personas/fotos/Juan-Francisco-Lizarraga-Salas.jpg`
+
 **Rol:** Mesa Directiva
 
 CMUN 2025-2027 · Coord. andrología (miércoles)

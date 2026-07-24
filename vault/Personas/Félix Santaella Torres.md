@@ -1,5 +1,9 @@
 # Félix Santaella Torres
 
+![[fotos/Felix-Santaella-Torres.jpg]]
+
+**Foto:** `Personas/fotos/Felix-Santaella-Torres.jpg`
+
 **Rol:** Mesa Directiva
 
 CMUN 2025-2027

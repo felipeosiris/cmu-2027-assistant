@@ -1,0 +1,26 @@
+{
+  "name": "CMU 2027 Assistant",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "forwardPorts": [8788],
+  "portsAttributes": {
+    "8788": {
+      "label": "CMU Assistant",
+      "onAutoForward": "notify"
+    }
+  },
+  "postCreateCommand": "npm install && npm run build",
+  "postStartCommand": "npm run start",
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "terminal.integrated.defaultProfile.linux": "bash"
+      }
+    }
+  },
+  "remoteEnv": {
+    "VAULT_CWD": "${containerWorkspaceFolder}/vault",
+    "PORT": "8788",
+    "CURSOR_MODEL": "auto",
+    "NODE_ENV": "production"
+  }
+}

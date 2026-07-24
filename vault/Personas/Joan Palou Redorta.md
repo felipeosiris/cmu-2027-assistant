@@ -1,6 +1,14 @@
 # Joan Palou Redorta
 
 **Rol:** Ponente internacional
+**Enfoque:** Carcinoma urotelial; enucleación renal robótica
+**Día / bloque:** 2026-06-04
+**Sede:** CIC Puerto Vallarta
+**Foto:** `Personas/fotos/web/Joan-Palou-Redorta.png`
+
+![[fotos/web/Joan-Palou-Redorta.png]]
+
+**Rol:** Ponente internacional
 
 Carcinoma urotelial; enucleación renal robótica
 

@@ -1,6 +1,12 @@
 # Karim Touijer
 
 **Rol:** Ponente internacional
+**Enfoque:** Nefrectomía parcial; linfadenectomía / PSMA
+**Día / bloque:** 2026-06-04, 2026-06-05
+**Sede:** CIC Puerto Vallarta
+**Foto:** pendiente (no venía como retrato suelto en el PDF del programa)
+
+**Rol:** Ponente internacional
 
 Nefrectomía parcial compleja; linfadenectomía pélvica; factor cirujano en PR
 

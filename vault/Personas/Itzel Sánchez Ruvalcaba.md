@@ -1,5 +1,9 @@
 # Itzel Sánchez Ruvalcaba
 
+![[fotos/Itzel-Sanchez-Ruvalcaba.jpg]]
+
+**Foto:** `Personas/fotos/Itzel-Sanchez-Ruvalcaba.jpg`
+
 **Rol:** Mesa Directiva
 
 CMUN 2025-2027 · Coord. cáncer de próstata avanzado (viernes)

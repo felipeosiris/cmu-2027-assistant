@@ -1,5 +1,9 @@
 # Alejandro Sierra Torres
 
+![[fotos/Alejandro-Sierra-Torres.jpg]]
+
+**Foto:** `Personas/fotos/Alejandro-Sierra-Torres.jpg`
+
 **Rol:** Mesa Directiva
 
 CMUN 2025-2027 · Coord. video teatro robótica
