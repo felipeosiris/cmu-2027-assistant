@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 import { marked } from "marked";
 import mermaid from "mermaid";
+import { apiUrl } from "./api";
 
 let mermaidReady = false;
 
@@ -67,25 +68,30 @@ export function markdownToHtml(md: string): string {
   src = src.replace(
     /!\[\[(?:Personas\/)?fotos\/([^\]]+)\]\]/gi,
     (_m, file: string) =>
-      `![foto](/api/vault/Personas/fotos/${encodeURIComponent(file.trim())})`
+      `![foto](${apiUrl(`/api/vault/Personas/fotos/${encodeURIComponent(file.trim())}`)})`
   );
   // ![[path/to/image.jpg]] generic images in vault
   src = src.replace(
     /!\[\[([^\]]+\.(?:jpg|jpeg|png|webp|gif))\]\]/gi,
     (_m, file: string) =>
-      `![imagen](/api/vault/${file.trim().split("/").map(encodeURIComponent).join("/")})`
+      `![imagen](${apiUrl(`/api/vault/${file.trim().split("/").map(encodeURIComponent).join("/")}`)})`
   );
 
   const html = marked.parse(src) as string;
-  return html.replace(
-    /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/gi,
-    (_m, code: string) => {
-      const source = decodeEntities(code).trim();
-      return `<div class="mermaid-wrap"><div class="mermaid">${escapeForMermaid(
-        source
-      )}</div></div>`;
-    }
-  );
+  return html
+    .replace(
+      /src="(\/api\/[^"]+)"/g,
+      (_m, path: string) => `src="${apiUrl(path)}"`
+    )
+    .replace(
+      /<pre><code class="language-mermaid">([\s\S]*?)<\/code><\/pre>/gi,
+      (_m, code: string) => {
+        const source = decodeEntities(code).trim();
+        return `<div class="mermaid-wrap"><div class="mermaid">${escapeForMermaid(
+          source
+        )}</div></div>`;
+      }
+    );
 }
 
 type Props = {

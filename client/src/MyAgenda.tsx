@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { apiUrl } from "./api";
 
 export type ProgramSession = {
   id: string;
@@ -54,8 +55,8 @@ export function MyAgendaPanel({ open, onClose, onAsk }: Props) {
     void (async () => {
       try {
         const [a, p] = await Promise.all([
-          fetch("/api/program/agenda").then((r) => r.json()),
-          fetch("/api/program").then((r) => r.json()),
+          fetch(apiUrl("/api/program/agenda")).then((r) => r.json()),
+          fetch(apiUrl("/api/program")).then((r) => r.json()),
         ]);
         if (cancelled) return;
         setAgenda(a);
@@ -249,7 +250,7 @@ export function MyAgendaPanel({ open, onClose, onAsk }: Props) {
 }
 
 export async function downloadResponsePdf(title: string, text: string) {
-  const res = await fetch("/api/export/pdf", {
+  const res = await fetch(apiUrl("/api/export/pdf"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ title, text }),

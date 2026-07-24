@@ -6,6 +6,7 @@ import {
   downloadResponsePdf,
   shareOrCopy,
 } from "./MyAgenda";
+import { apiUrl, IS_STATIC } from "./api";
 
 type Role = "user" | "assistant" | "system";
 
@@ -43,10 +44,6 @@ type SpeechRecognitionLike = {
   start: () => void;
   stop: () => void;
 };
-
-const IS_STATIC =
-  typeof window !== "undefined" &&
-  /(\.web\.app|\.firebaseapp\.com)$/i.test(window.location.hostname);
 
 const STORAGE_KEY = "cmu-ai-threads-v1";
 
@@ -334,7 +331,7 @@ function sessionBucket(ts: number): string {
 async function speakSummary(text: string, summaryHint?: string) {
   window.speechSynthesis?.cancel();
   try {
-    const res = await fetch("/api/speak", {
+    const res = await fetch(apiUrl("/api/speak"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: summaryHint || text }),
@@ -407,11 +404,11 @@ export default function App() {
 
   useEffect(() => {
     if (IS_STATIC) return;
-    fetch("/api/health")
+    fetch(apiUrl("/api/health"))
       .then((r) => r.json())
       .then(setHealth)
       .catch(() => setHealth(null));
-    fetch("/api/tools/weather")
+    fetch(apiUrl("/api/tools/weather"))
       .then((r) => r.json())
       .then((w) => {
         if (w?.temperatureC != null) setWeather(w);
@@ -486,7 +483,7 @@ export default function App() {
       setBusy(true);
 
       try {
-        const res = await fetch("/api/chat", {
+        const res = await fetch(apiUrl("/api/chat"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
