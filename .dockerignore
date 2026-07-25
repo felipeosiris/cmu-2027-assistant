@@ -1,0 +1,11 @@
+node_modules
+client/node_modules
+functions/node_modules
+functions/lib
+.git
+.firebase
+.env
+functions/.env
+*.log
+.DS_Store
+.devcontainer

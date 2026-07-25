@@ -90,10 +90,25 @@ async function getOrCreateSession(sessionId?: string): Promise<Session> {
   }
 
   const id = sessionId || uuidv4();
+  const managedCloud =
+    Boolean(process.env.FUNCTION_TARGET) ||
+    Boolean(process.env.K_SERVICE) ||
+    process.env.CMU_AGENT_RUNTIME === "cloud";
   const agent = await Agent.create({
     apiKey: API_KEY,
     model: { id: MODEL_ID },
-    local: { cwd: VAULT_CWD },
+    ...(managedCloud
+      ? {
+          cloud: {
+            repos: [
+              {
+                url: "https://github.com/felipeosiris/cmu-2027-assistant",
+                startingRef: "main",
+              },
+            ],
+          },
+        }
+      : { local: { cwd: VAULT_CWD } }),
   });
 
   const session: Session = { id, agent, createdAt: Date.now() };
@@ -106,6 +121,10 @@ app.use(cors({ origin: true }));
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (_req, res) => {
+  const managedCloud =
+    Boolean(process.env.FUNCTION_TARGET) ||
+    Boolean(process.env.K_SERVICE) ||
+    process.env.CMU_AGENT_RUNTIME === "cloud";
   res.json({
     ok: true,
     vaultCwd: VAULT_CWD,
@@ -114,7 +133,7 @@ app.get("/api/health", (_req, res) => {
     hasPlacesKey: Boolean(process.env.GOOGLE_PLACES_API_KEY),
     sessions: sessions.size,
     ttsVoice: TTS_VOICE,
-    mode: "local",
+    mode: managedCloud ? "cloud" : "local",
   });
 });
 
@@ -491,20 +510,29 @@ app.post("/api/session/reset", async (req, res) => {
 });
 
 const clientDist = path.join(rootDir, "client", "dist");
-app.use(express.static(clientDist));
-app.get("*", (req, res, next) => {
-  if (req.path.startsWith("/api")) return next();
-  res.sendFile(path.join(clientDist, "index.html"), (err) => {
-    if (err) next();
-  });
-});
+const skipListen =
+  Boolean(process.env.FUNCTION_TARGET) ||
+  Boolean(process.env.K_SERVICE) ||
+  process.env.CMU_SKIP_LISTEN === "1";
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log(`Asistente CMU 2027 → http://0.0.0.0:${PORT}`);
-  console.log(`Vault cwd          → ${VAULT_CWD}`);
-  console.log(`Model              → ${MODEL_ID}`);
-  console.log(`API key            → ${API_KEY ? "ok" : "MISSING (.env)"}`);
-  console.log(`Places             → ${process.env.GOOGLE_PLACES_API_KEY ? "ok" : "fallback FanPass"}`);
-  console.log(`TTS                → ${TTS_VOICE}`);
-  console.log(`Static UI          → ${fs.existsSync(clientDist) ? clientDist : "missing (run npm run build)"}`);
-});
+if (!skipListen) {
+  app.use(express.static(clientDist));
+  app.get("*", (req, res, next) => {
+    if (req.path.startsWith("/api")) return next();
+    res.sendFile(path.join(clientDist, "index.html"), (err) => {
+      if (err) next();
+    });
+  });
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`Asistente CMU 2027 → http://0.0.0.0:${PORT}`);
+    console.log(`Vault cwd          → ${VAULT_CWD}`);
+    console.log(`Model              → ${MODEL_ID}`);
+    console.log(`API key            → ${API_KEY ? "ok" : "MISSING (.env)"}`);
+    console.log(`Places             → ${process.env.GOOGLE_PLACES_API_KEY ? "ok" : "fallback FanPass"}`);
+    console.log(`TTS                → ${TTS_VOICE}`);
+    console.log(`Static UI          → ${fs.existsSync(clientDist) ? clientDist : "missing (run npm run build)"}`);
+  });
+}
+
+export { app };

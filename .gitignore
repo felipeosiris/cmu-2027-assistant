@@ -2,5 +2,9 @@ node_modules/
 .env
 client/dist/
 .firebase/
+functions/node_modules/
+functions/lib/
+functions/vault/
+functions/.env
 *.log
 .DS_Store
