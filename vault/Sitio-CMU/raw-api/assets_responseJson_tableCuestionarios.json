@@ -1,0 +1,79 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "header": {
+      "item": "Cuestionarios",
+      "description": "Descripción",
+      "actions": "Archivos"
+    },
+    "content": [
+      {
+        "item": "AMSS",
+        "description": "Escala de Puntuación de Síntomas de los Varones de Edad Avanzada",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://cmu.org.mx/index.php/cuestionarios/"
+        }
+      },
+      {
+        "item": "CIQ-SF",
+        "description": "Cuestionario de Incontinencia Urinaria I",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://cmu.org.mx/index.php/cuestionarios/"
+        }
+      },
+      {
+        "item": "IIEF",
+        "description": "Índice Internacional de Función Erectil",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://cmu.org.mx/index.php/cuestionarios/"
+        }
+      },
+      {
+        "item": "IPSS",
+        "description": "Puntuación Internacional de Síntomas Prostáticos",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://cmu.org.mx/index.php/cuestionarios/"
+        }
+      },
+      {
+        "item": "Potenziani",
+        "description": "Cuestionario de Impacto de la Incontinencia Urinaria en la calidad de Vida de la Mujer Potenziani-14-CI-IO-QOL-2000",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://cmu.org.mx/index.php/cuestionarios/"
+        }
+      },
+      {
+        "item": "SHIM",
+        "description": "Cuestionario de Salud Sexual para Varones",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://cmu.org.mx/index.php/cuestionarios/"
+        }
+      },
+      {
+        "item": "Clavien",
+        "description": "Clavien para Cirugía Percutánea. Escala de Clavien.",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://cmu.org.mx/index.php/cuestionarios/"
+        }
+      },
+      {
+        "item": "Nephrometry",
+        "description": "R.E.N.A.L Nephrometry Scoring System",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://cmu.org.mx/index.php/cuestionarios/"
+        }
+      }
+    ],
+    "totalColumns": 3,
+    "notes": "<p>Para obtener la funcionalidad completa de los cuestionarios es necesario tenerinstalado el visor de PDF Adobe Acrobat Reader.</p><p>Descargar versión de escritorio, App iPhone / iPad, Android</p>"
+  }
+}

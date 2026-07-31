@@ -1,0 +1,18 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": [
+    {
+      "id": 1,
+      "image": "Congreso Internacional de mexico",
+      "url": "../assets/general/foto1.png",
+      "text": "Fotografías XLVII Congreso Internacional CMUN"
+    },
+    {
+      "id": 2,
+      "image": "Congreso Internacional de mexico",
+      "url": "../assets/general/foto2.png",
+      "text": "Fotografías XLVI Congreso Internacional CMUN"
+    }
+  ]
+}

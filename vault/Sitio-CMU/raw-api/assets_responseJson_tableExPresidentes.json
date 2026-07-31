@@ -1,0 +1,122 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": [
+    [
+      {
+        "title": "Virgilio Augusto López Sámano",
+        "date": "2023 - 2025"
+      },
+      {
+        "title": "Héctor Raúl Varzas Zamora +",
+        "date": "2021 - 2023"
+      },
+      {
+        "title": "Ignacio López Caballero +",
+        "date": "2019 - 2021"
+      },
+      {
+        "title": "Ismael Sedano Portillo",
+        "date": "2017 - 2019"
+      },
+      {
+        "title": "Eduardo Alonso Serrano Brambila",
+        "date": "2015 - 2017"
+      }
+    ],
+    [
+      {
+        "title": "Luis Miguel Covarrubias Rendón",
+        "date": "2013 - 2015"
+      },
+      {
+        "title": "Mario Alberto Martínez Romero",
+        "date": "2011 - 2013"
+      },
+      {
+        "title": "Vicente García Pérez",
+        "date": "2009 - 2011"
+      },
+      {
+        "title": "Luis Carlos Sánchez Martínez +",
+        "date": "2007 - 2009"
+      },
+      {
+        "title": "Guillermo Rodríguez Carrizosa +",
+        "date": "2005 - 2007"
+      }
+    ],
+    [
+      {
+        "title": "Jorge Moreno Aranda",
+        "date": "2003 - 2005"
+      },
+      {
+        "title": "Luis Rodríguez Gutiérrez",
+        "date": "2001 - 2003"
+      },
+      {
+        "title": "Roberto Vega Serrano +",
+        "date": "1999 - 2001"
+      },
+      {
+        "title": "Eleazar Osvaldo Yañez Aguilar",
+        "date": "1997 - 1999"
+      },
+      {
+        "title": "Enrique Trejo González",
+        "date": "1995 - 1997"
+      }
+    ],
+    [
+      {
+        "title": "José Antonio Muñoz Reyes",
+        "date": "1993 - 1995"
+      },
+      {
+        "title": "Sergio Ermen Ureta Sánchez",
+        "date": "1991 - 1993"
+      },
+      {
+        "title": "Marco A. Ugartechea Ontiveros +",
+        "date": "1989 - 1991"
+      },
+      {
+        "title": "Raúl Sergio Martínez Sánchez",
+        "date": "1987 - 1989"
+      },
+      {
+        "title": "Fernando Gómez Orta +",
+        "date": "1985 - 1987"
+      }
+    ],
+    [
+      {
+        "title": "Abraham Moisés Santacruz Romero +",
+        "date": "1983 - 1985"
+      },
+      {
+        "title": "Rafael Sandoval Parra +",
+        "date": "1981 - 1983"
+      },
+      {
+        "title": "Emilio de la Peña Zayas +",
+        "date": "1979 - 1981"
+      },
+      {
+        "title": "Rodolfo Gómez Rodríguez +",
+        "date": "1975 - 1979"
+      },
+      {
+        "title": "Héctor Barea Domínguez",
+        "date": "1973 - 1975"
+      }
+    ],
+    [
+      {
+        "title": "Federico Ortiz Quezada",
+        "date": "1971 - 1973"
+      }
+    ]
+  ]
+}

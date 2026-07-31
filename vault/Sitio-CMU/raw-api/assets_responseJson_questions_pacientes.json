@@ -1,0 +1,51 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "breadcrum": "Pacientes",
+    "info": [
+      {
+        "title": "¿QUÉ ES LA UROLOGÍA?",
+        "description": "La urología es la rama de la medicina que se dedica al diagnóstico, prevención y tratamiento de las enfermedades del sistema urinario en la mujer y el sistema génito-urinario en el hombre.",
+        "acordeon": null
+      },
+      {
+        "title": "¿El urólogo sólo atiende a hombres?",
+        "description": "El urólogo atiende hombres, mujeres, niños y niñas (urólogo pediatra) porque las enfermedades del sistema urinario se presentan en ambos sexos",
+        "acordeon": null
+      },
+      {
+        "title": "¿EL URÓLO SÓLO ATIENDE A GENTE MAYOR?",
+        "description": "Las enfermedades urológicas se han vuelto más frecuentes a medida que la población envejece pero no son exclusivas de la gente mayor.",
+        "acordeon": null
+      },
+      {
+        "title": "¿CUÁL ES LA DIFERENCIA CON EL NEFRÓLOGO?",
+        "description": "Las enfermedades urológicas pueden ser muy diferentes en naturaleza. Los urólogos toman en cuenta todas las funciones del tracto urinario y están entrenados para…",
+        "acordeon": {
+          "id": "1",
+          "isOpen": false,
+          "information": "realizar cirugías así como tratar con medicamentos. Los urólogos se especializan en un área específica, por ejemplo el cáncer urológico. En cambio la nefrología es la especialidad médica rama de la medicina interna que se ocupa del estudio de la estructura y la función renal, tanto en la salud como en la enfermedad, incluyendo la prevención y tratamiento de las enfermedades renales como insuficiencia renal, que es la condición en la cual los riñones dejan de funcionar correctamente. La insuficiencia renal aguda, una pérdida repentina de la función renal y la insuficiencia renal crónica, donde se han detectado síntomas de declinación de la función renal, a menudo una elevación de la creatinina, pérdida de la sangre y la pérdida de proteínas en la orina."
+        }
+      },
+      {
+        "title": "¿QUÉ ES EL CÁNCER?",
+        "description": "Cáncer es una enfermedad en la que células del cuerpo empiezan a dividirse sin detenerse. El cáncer puede empezar casi en cualquier lugar del cuerpo humano…",
+        "acordeon": {
+          "id": "2",
+          "isOpen": false,
+          "information": "el cual está formado de trillones de células. Normalmente, las células humanas crecen y se dividen para formar nuevas células a medida que el cuerpo las necesita, reemplazando a las células viejas que mueren. En el cáncer a medida que las células se hacen más y más anormales, las células viejas o dañadas sobreviven cuando deberían morir. Estas células pueden dividirse sin interrupción y pueden formar masas que se llaman tumores y se diseminan a los tejidos del derredor, se introducen en los conductos del cuerpo como vasos linfáticos y vasos sanguíneos, viajando a través de ellos a sitios distantes y formar nuevos tumores lejos del tumor original, donde luego se instalan y crecen sin detenerse causando síntomas generales como pérdida de peso, de energía y síntomas locales, que son muy particulares del órgano o tejido donde crece causando entre otros síntomas, dolor y eventualmente si no se cura, termina con la vida del paciente."
+        }
+      },
+      {
+        "title": "¿QUÉ ES EL CÁNCER PRIMARIO?",
+        "description": "El término primario se refiere al conocimiento del órgano o tejido donde se originó el cáncer, de tal forma que se le llama secundario o metastásico …",
+        "acordeon": {
+          "id": "3",
+          "isOpen": false,
+          "information": "cuando se encuentra en un órgano o tejido donde no se originó, es decir que viene de otro órgano o tejido del cuerpo."
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,87 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "header": {
+      "item": "Formatos de Seguros",
+      "description": "Descripción",
+      "actions": "Archivos"
+    },
+    "content": [
+      {
+        "item": "Nomograma Pretratamiento de Cáncer de Próstata",
+        "description": "",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://www.mskcc.org/nomograms/prostate/pre_op"
+        }
+      },
+      {
+        "item": "Nomograma Post Prostatectomía Radical",
+        "description": "",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://www.mskcc.org/nomograms/prostate/post_op"
+        }
+      },
+      {
+        "item": "Nomograma Post radioterapia de salvamento",
+        "description": "",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://www.mskcc.org/nomograms/prostate/salvage_radiation_therapy"
+        }
+      },
+      {
+        "item": "Nomograma de Cáncer de Próstata Hormono Refractario",
+        "description": "",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://www.mskcc.org/nomograms/prostate"
+        }
+      },
+      {
+        "item": "Calculadora de Doblaje de Antígeno Prostático Específico",
+        "description": "",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://nomograms.mskcc.org/Prostate/PsaDoublingTime.aspx"
+        }
+      },
+      {
+        "item": "Calculadora de expectativa de vida",
+        "description": "",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "http://nomograms.mskcc.org/Prostate/LifeExpectancy.aspx"
+        }
+      },
+      {
+        "item": "Cálculo de volumen tumoral prostático",
+        "description": "",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://www.mskcc.org/nomograms/prostate/volume"
+        }
+      },
+      {
+        "item": "Monograma post tratamiento ded cáncer de vejiga",
+        "description": "",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://www.mskcc.org/nomograms/bladder"
+        }
+      },
+      {
+        "item": "Monograma de cáncer renal post cirugía",
+        "description": "",
+        "actions": {
+          "name": "Visita Aquí",
+          "url": "https://www.mskcc.org/nomograms/renal"
+        }
+      }
+    ],
+    "totalColumns": 2,
+    "notes": ""
+  }
+}

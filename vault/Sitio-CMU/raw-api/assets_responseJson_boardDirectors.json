@@ -1,0 +1,54 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "title": "MESA DIRECTIVA 2025 – 2027",
+    "directors": [
+      {
+        "image": "assets/directors/ANDRES_HERNANDEZ_P.png",
+        "name": "Dr. Andrés Hernández Porras",
+        "position": "Presidente"
+      },
+      {
+        "image": "assets/directors/FELIX_SANTAELLA_T.png",
+        "name": "Dr. Felix Santaella Torres",
+        "position": "Vicepresidente"
+      },
+      {
+        "image": "assets/directors/EDGAR_BELTRAN.png",
+        "name": "Dr. Edgar Beltrán Suárez",
+        "position": "Secretario propietario"
+      },
+      {
+        "image": "assets/directors/TORRES-SIERRA-ALEJANDRO.png",
+        "name": "Dr. Alejandro Sierra Torres",
+        "position": "Secretario propietario"
+      },
+      {
+        "image": "assets/directors/DrJuanSalas.webp",
+        "name": "Dr. Juan Francisco Lizárraga Salas",
+        "position": "Secretario Propietario suplente"
+      },
+      {
+        "image": "assets/directors/EFRAIN_MALDONADO_A.png",
+        "name": "Dr. Efraín Maldonado Alcaraz",
+        "position": "Tesorero"
+      },
+      {
+        "image": "assets/directors/HEGEL_T_SANTAMARIA.png",
+        "name": "Dr. Hegel T. Santamaría",
+        "position": "Secretario suplente"
+      },
+      {
+        "image": "assets/directors/FERNANDO_MALDONADO.png",
+        "name": "Dr. Fernando Maldonado Avila",
+        "position": "Secretario suplente"
+      },
+      {
+        "image": "assets/directors/ITZEL_RIGEL.png",
+        "name": "Dra. Itzel Rigel Sánchez Ruvalcaba",
+        "position": "Tesorero suplente"
+      }
+    ]
+  }
+}

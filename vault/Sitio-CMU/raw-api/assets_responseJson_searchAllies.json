@@ -1,0 +1,39 @@
+{
+  "data": [
+    {
+      "id": "1",
+      "url": "assets/colaboradores/ANUER-Logo.png",
+      "link": "https://anuer.org/"
+    },
+    {
+      "id": "2",
+      "url": "assets/colaboradores/AUA-Logo.png",
+      "link": "https://www.auanet.org/"
+    },
+    {
+      "id": "3",
+      "url": "assets/colaboradores/CJU-Logo.png",
+      "link": "https://cju.com.mx/"
+    },
+    {
+      "id": "4",
+      "url": "assets/colaboradores/CNMU-Logo.png",
+      "link": "https://conameu.org/root/mv.html#"
+    },
+    {
+      "id": "5",
+      "url": "assets/colaboradores/COL-Logo.png",
+      "link": "https://www.facebook.com/sociedadmichoacanadeurologia.ac/?locale=es_LA"
+    },
+    {
+      "id": "6",
+      "url": "assets/colaboradores/EAU-Logo.png",
+      "link": "https://uroweb.org/"
+    },
+    {
+      "id": "7",
+      "url": "assets/colaboradores/SIU-Logo.png",
+      "link": "https://www.siu-urology.org/"
+    }
+  ]
+}

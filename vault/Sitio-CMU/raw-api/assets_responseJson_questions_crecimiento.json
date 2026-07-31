@@ -1,0 +1,72 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "breadcrum": "Crecimiento Prostático Benigno (Hiperplasia Prostática)",
+    "info": [
+      {
+        "title": "¿Qué es el crecimiento prostático?",
+        "description": "La próstata es una glándula del cuerpo que solo existe en el hombre y que sirve para producir líquido prostático que mantiene vivos ….",
+        "acordeon": {
+          "id": "1",
+          "isOpen": false,
+          "information": "que logren la fecundación del óvulo, garantizando que se pueda dar el embarazo y con ello la permanencia de la especie humana. Con el avance de la edad suele aumentar de tamaño por el crecimiento en el número de células, pero a diferencia del cáncer, éste suele ser un crecimiento “benigno” porque las células no invaden a su alrededor, ni viajan a lugares distantes. Este crecimiento inicia después de los 35 años de edad y suele provocar síntomas después de los 50 años."
+        }
+      },
+      {
+        "title": "Síntomas del Crecimiento Prostático",
+        "description": "Los síntomas se caracterizan por goteo después de orinar, chorro delgado y sin fuerza, chorro urinario intermitente, aumento en la frecuencia…",
+        "acordeon": {
+          "id": "2",
+          "isOpen": false,
+          "information": "urinaria durante el día, levantarse varias veces por la noche a orinar, esfuerzo para orinar, sensación de vaciamiento incompleto, quedarse con deseo de seguir orinando y puede haber dolor al orinar."
+        }
+      },
+      {
+        "title": "Diagnóstico del Crecimiento Prostático",
+        "description": "Lo que inicialmente se evalúa son los síntomas que se mencionaron anteriormente, se solicitan estudios de antígeno prostático…",
+        "acordeon": {
+          "id": "3",
+          "isOpen": false,
+          "information": "especifico y la exploración digital de la próstata por vía rectal que ayudan para diferenciar el crecimiento prostático “benigno” de crecimiento canceroso “maligno” y puede estar indicado estudios de orina para evaluar principalmente si hay infección y ultrasonido de las vías urinarias para ver la repercusión de la obstrucción y del tamaño prostático."
+        }
+      },
+      {
+        "title": "Tratamiento del crecimiento prostático",
+        "description": "Existen múltiples alternativas entre las que destacan medicamentos llamados alfa bloqueadores, procedimientos…",
+        "acordeon": {
+          "id": "4",
+          "isOpen": false,
+          "information": "de invasión mínima o cirugías como la resección transuretral de próstata, láser, etc."
+        }
+      },
+      {
+        "title": "¿Qué pasa si me quedo sin tratamiento?",
+        "description": "Podría no requerir tratamiento si los síntomas son leves y en la evaluación del sistema urinario de descarta obstrucción…",
+        "acordeon": {
+          "id": "5",
+          "isOpen": false,
+          "information": "u otras complicaciones. Si requiere tratamiento y no se aplica, el paciente puede continuar con las molestias o incluso se puede dañar el sistema urinario, la función del los riñones y algunas otras complicaciones serias que ponen en peligro la vida del paciente."
+        }
+      },
+      {
+        "title": "¿Tratamientos para el crecimiento prostático?",
+        "description": "Existen múltiples alternativas entre las que destacan medicamentos llamados alfa bloqueadores, procedimientos…",
+        "acordeon": {
+          "id": "6",
+          "isOpen": false,
+          "information": "de invasión mínima o cirugías como la resección transuretral de próstata, láser, etc."
+        }
+      },
+      {
+        "title": "¿Tratamientos naturales útiles?",
+        "description": "Existen medicamentos naturales como el serenoa repens que tienen más efectos placebos que terapéuticos…",
+        "acordeon": {
+          "id": "7",
+          "isOpen": false,
+          "information": "y son ampliamente utilizados especialmente en Europa, a pesar de que su utilidad objetiva es incierta."
+        }
+      }
+    ]
+  }
+}

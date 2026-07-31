@@ -1,6 +1,6 @@
 {
   "hosting": {
-    "site": "asistente-cmu",
+    "site": "cmu-2027-assistant",
     "public": "client/dist",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "headers": [

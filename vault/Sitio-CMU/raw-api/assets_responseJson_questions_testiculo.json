@@ -1,0 +1,36 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "breadcrum": "testículo – epidídimo",
+    "info": [
+      {
+        "title": "cáncer testicular",
+        "description": "El cáncer de testículo es el tumor de órgano solido más frecuente en hombres jóvenes…",
+        "acordeon": {
+          "id": "1",
+          "isOpen": false,
+          "information": "en la cual se forman células malignas (cancerosas) en los tejidos de uno o ambos testículos. Entre los signos y síntomas de cáncer de testículo, se incluyen: un crecimiento no doloroso, aumento de su consistencia y en ocasiones dolor e incomodidad en un testículo o el escroto."
+        }
+      },
+      {
+        "title": "infecciones (orquiepidimitis)",
+        "description": "Los testículos y los epidídimos (la estructura que se encuentra por arriba del testículo)…",
+        "acordeon": {
+          "id": "2",
+          "isOpen": false,
+          "information": "como otras partes del sistema urinario son susceptibles a infección, estas se caracterizan por un aumento del tamaño del testículo acompañado de dolor."
+        }
+      },
+      {
+        "title": "quistes epidídimo",
+        "description": "El epidídimo (la estructura que se encuentra por arriba del testículo) es una estructura…",
+        "acordeon": {
+          "id": "3",
+          "isOpen": false,
+          "information": "encargada de almacenar espermatozoides puede presentar en ocasiones crecimiento, debido a una acumulación de líquido en forma redonda conocida como quiste, esta puede ser dolorosa o no y requiere la valoración por un urólogo se presenta."
+        }
+      }
+    ]
+  }
+}

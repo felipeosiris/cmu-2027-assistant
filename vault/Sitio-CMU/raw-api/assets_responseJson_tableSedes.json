@@ -1,0 +1,64 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": [
+    {
+      "title": "Hospital de Especialidades Centro Médico Siglo XXI ",
+      "value": "CDMX"
+    },
+    {
+      "title": "Hospital de Especialidades Centro Med. Nal La Raza",
+      "value": "CDMX"
+    },
+    { "title": "Hospital General CMN La Raza", "value": "CDMX" },
+    {
+      "title": "Hospital General Regional 1 IMSS Mérida Yucatán",
+      "value": "Mérida"
+    },
+    {
+      "title": "Hospital Regional de Alta Especialidad de la Península de Yucatán",
+      "value": "Mérida"
+    },
+    { "title": "UMAE 71 IMSS Torreón Coahuila", "value": "Torreón" },
+    { "title": "IMSS UMAE T1 LEÓN, GTO.", "value": "León" },
+    { "title": "IMSS UMAE #25. Monterrey. Nuevo León", "value": "Monterrey" },
+    {
+      "title": "Hospital General de Zona No. 33 Monterrey",
+      "value": "Monterrey"
+    },
+    { "title": "ISSSTE Regional de Monterrey", "value": "Monterrey" },
+    { "title": "Hospital Universitario José E Gonzalez", "value": "Monterrey" },
+    { "title": "Hospital General de Hermosillo", "value": "Hermosillo" },
+    {
+      "title": "Unidad de  Especialidades NO. 14 de Veracruz.",
+      "value": "Veracruz"
+    },
+    {
+      "title": "Centro Médico Nacional del Noroeste No.2 “Luis Donaldo Colosio Murrieta”",
+      "value": "Cd Obregón"
+    },
+    {
+      "title": "Hospital Regional de Alta Especialidad Bicentenario",
+      "value": "CDMX"
+    },
+    { "title": "Hospital CMN 20 de Noviembre, ISSSTE", "value": "CDMX" },
+    { "title": "Hospital Ángeles Metropolitano", "value": "CDMX" },
+    { "title": "Hospital Central Militar", "value": "CDMX" },
+    { "title": "Centro Médico Naval", "value": "CDMX" },
+    {
+      "title": "Centro Médico Nacional de Occidente Guadalajara",
+      "value": "Guadalajara"
+    },
+    {
+      "title": "Nuevo Hospital Civil de Guadalajara 'Dr. Juan I. Menchaca'",
+      "value": "Guadalajara"
+    },
+    { "title": "UMAE MAC HE PUEBLA IMSS", "value": "Puebla" },
+    { "title": "Hospital General Zona 51 IMSS", "value": "San Luis Potosí" },
+    { "title": "Hospital General de Culiacán", "value": "Culiacán" },
+    { "title": "Hospital Regional ISSSTE Puebla", "value": "Puebla" },
+    { "title": "IMSS Hospital General Regional 46", "value": "Guadalajara" },
+    { "title": "Centro Médico ABC", "value": "CDMX" },
+    { "title": "Hospital General de Occidente", "value": "Guadalajara" }
+  ]
+}

@@ -47,8 +47,14 @@ const VAULT_CWD =
   (fs.existsSync(bundledVault) ? bundledVault : siblingVault);
 const API_KEY = process.env.CURSOR_API_KEY || "";
 const MODEL_ID = process.env.CURSOR_MODEL || "auto";
-/** Voz natural ES-MX (Edge TTS). */
+/** Fallback Edge TTS (ES-MX) si ElevenLabs no está disponible. */
 const TTS_VOICE = process.env.TTS_VOICE || "es-MX-DaliaNeural";
+const ELEVEN_KEY = process.env.ELEVENLABS_API_KEY || "";
+/** Bella (default library) — plan free; multilingual/flash habla español. */
+const ELEVEN_VOICE =
+  process.env.ELEVENLABS_VOICE_ID || "hpp4J3VqNfWAUOO0d1Us";
+const ELEVEN_MODEL =
+  process.env.ELEVENLABS_MODEL || "eleven_flash_v2_5";
 
 type Session = {
   id: string;
@@ -60,13 +66,15 @@ type Session = {
 const sessions = new Map<string, Session>();
 
 const SYSTEM_HINT = `
-Eres el Asistente CMU 2027: guía inteligente y PROACTIVO del Plan Estratégico y del 50° Congreso CMU (Puerto Vallarta, 2–6 jun 2026).
+Eres el Asistente CMU 2027: guía inteligente y PROACTIVO del Plan Estratégico CMU, del 50° Congreso (Puerto Vallarta, 2–6 jun 2026) y del próximo 51° Congreso Internacional de Urología (Tijuana, BC, 11–15 abr 2027).
 
-Trabajas con el filesystem CMU-2027 (cwd) y DATOS EN VIVO (clima, sede CIC, lugares con mapas, programa estructurado con horarios/salones, patrocinadores, fichas de ponentes, y APIs médicas: RxNorm, OpenFDA, ClinicalTrials.gov, PubMed). No inventes clima, ratings, coordenadas, horarios ni datos clínicos.
+Trabajas con el filesystem CMU-2027 (cwd) y DATOS EN VIVO (clima, sede CIC 2026, lugares con mapas, programa estructurado, patrocinadores, fichas de ponentes, y APIs médicas: RxNorm, OpenFDA, ClinicalTrials.gov, PubMed). No inventes clima, ratings, coordenadas, horarios ni datos clínicos.
+
+Próximo congreso (flyer + cmu.org.mx): 51° · 11–15 abril 2027 · Tijuana, Baja California · web cmu.org.mx · tel 55 9000 2092 / 2093. Aún no hay sede hotel/centro ni programa día a día publicado: dilo si preguntan; no inventes. Hay convocatoria a Vicepresidencia 2027–2029 en el sitio.
 
 Reglas:
 - Español claro. Empieza con 1–2 frases de veredicto (se leen en voz).
-- Sé proactivo: clima/ropa, agenda ahora/siguiente, salón de la sesión, patrocinios, ponentes, comer/café, hotel, estacionamiento, farmacia, urgencias, fármacos/ensayos/evidencia.
+- Sé proactivo: clima/ropa, agenda ahora/siguiente, salón de la sesión, patrocinios, ponentes, comer/café, hotel, estacionamiento, farmacia, urgencias, fármacos/ensayos/evidencia, fechas Tijuana 2027.
 - Si hay agenda en vivo: tabla corta de “en curso” y “siguiente” con salón. Di si el reloj es demo.
 - Si preguntan salón (Maito, Quimixto, Caletas, Majahuitas): responde con salón + sesiones ahí.
 - Si preguntan patrocinadores: usa el JSON (Oro/Plata/Bronce/actividades). Astellas/Boston/TENA/Silanes tienen actividades ligadas.
@@ -75,7 +83,8 @@ Reglas:
 - Personas/fotos: si hay path de foto, \`![Nombre](/api/vault/...)\`. Si el JSON trae photoHit con confidence≥0.9, USA esa foto (proactivo). Si no hay foto segura, dilo en una frase; no inventes plantillas [FOTO 3x4].
 - Prioriza el índice estructurado del programa sobre inventar horarios del PDF.
 - Listas → tablas. Gráficas → \`\`\`mermaid + tabla.
-- No pegues API keys ni secretos.
+- No pegues API keys ni secretos. No ofrezcas pago online.
+- Lenguaje al usuario: NUNCA digas “bóveda”, “vault”, “Obsidian” ni rutas de archivos. Habla de “información del congreso”, “base de datos interna” o “datos del CMU”.
 `.trim();
 
 async function getOrCreateSession(sessionId?: string): Promise<Session> {
@@ -132,7 +141,9 @@ app.get("/api/health", (_req, res) => {
     hasApiKey: Boolean(API_KEY),
     hasPlacesKey: Boolean(process.env.GOOGLE_PLACES_API_KEY),
     sessions: sessions.size,
-    ttsVoice: TTS_VOICE,
+    ttsVoice: ELEVEN_KEY ? `elevenlabs:${ELEVEN_VOICE}` : TTS_VOICE,
+    ttsProvider: ELEVEN_KEY ? "elevenlabs" : "edge",
+    hasElevenLabs: Boolean(ELEVEN_KEY),
     mode: managedCloud ? "cloud" : "local",
   });
 });
@@ -367,7 +378,7 @@ app.use("/api/vault", (req, res, next) => {
   }
   const abs = path.resolve(VAULT_CWD, rel);
   if (!abs.startsWith(path.resolve(VAULT_CWD) + path.sep)) {
-    res.status(403).json({ error: "fuera de bóveda" });
+    res.status(403).json({ error: "acceso denegado" });
     return;
   }
   if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) {
@@ -377,7 +388,7 @@ app.use("/api/vault", (req, res, next) => {
   res.sendFile(abs);
 });
 
-/** TTS natural (Edge) — solo resumen corto. */
+/** TTS natural — ElevenLabs (preferido) con fallback Edge ES-MX. */
 app.post("/api/speak", async (req, res) => {
   const raw = String(req.body?.text || "").trim();
   if (!raw) {
@@ -385,16 +396,60 @@ app.post("/api/speak", async (req, res) => {
     return;
   }
   const summary = voiceSummaryFromMarkdown(raw, 280);
+
+  const sendAudio = (audio: Buffer, provider: string) => {
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("X-Voice-Summary", encodeURIComponent(summary));
+    res.setHeader("X-TTS-Provider", provider);
+    res.send(audio);
+  };
+
+  if (ELEVEN_KEY) {
+    try {
+      const elRes = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE}`,
+        {
+          method: "POST",
+          headers: {
+            "xi-api-key": ELEVEN_KEY,
+            "Content-Type": "application/json",
+            Accept: "audio/mpeg",
+          },
+          body: JSON.stringify({
+            text: summary,
+            model_id: ELEVEN_MODEL,
+            voice_settings: {
+              stability: 0.42,
+              similarity_boost: 0.78,
+              style: 0.15,
+              use_speaker_boost: true,
+            },
+          }),
+        }
+      );
+      if (!elRes.ok) {
+        const detail = await elRes.text().catch(() => "");
+        throw new Error(`elevenlabs ${elRes.status}: ${detail.slice(0, 200)}`);
+      }
+      const audio = Buffer.from(await elRes.arrayBuffer());
+      if (audio.length < 200) throw new Error("elevenlabs audio vacío");
+      sendAudio(audio, `elevenlabs:${ELEVEN_MODEL}`);
+      return;
+    } catch (e) {
+      console.warn(
+        "[tts] ElevenLabs falló, usando Edge:",
+        e instanceof Error ? e.message : e
+      );
+    }
+  }
+
   try {
     const communicate = new Communicate(summary, { voice: TTS_VOICE });
     const chunks: Buffer[] = [];
     for await (const chunk of communicate.stream()) {
       if (chunk.type === "audio" && chunk.data) chunks.push(Buffer.from(chunk.data));
     }
-    const audio = Buffer.concat(chunks);
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("X-Voice-Summary", encodeURIComponent(summary));
-    res.send(audio);
+    sendAudio(Buffer.concat(chunks), `edge:${TTS_VOICE}`);
   } catch (e) {
     res.status(500).json({
       error: e instanceof Error ? e.message : "tts error",
@@ -530,7 +585,13 @@ if (!skipListen) {
     console.log(`Model              → ${MODEL_ID}`);
     console.log(`API key            → ${API_KEY ? "ok" : "MISSING (.env)"}`);
     console.log(`Places             → ${process.env.GOOGLE_PLACES_API_KEY ? "ok" : "fallback FanPass"}`);
-    console.log(`TTS                → ${TTS_VOICE}`);
+    console.log(
+      `TTS                → ${
+        ELEVEN_KEY
+          ? `ElevenLabs ${ELEVEN_VOICE} (${ELEVEN_MODEL}) + Edge fallback`
+          : TTS_VOICE
+      }`
+    );
     console.log(`Static UI          → ${fs.existsSync(clientDist) ? clientDist : "missing (run npm run build)"}`);
   });
 }

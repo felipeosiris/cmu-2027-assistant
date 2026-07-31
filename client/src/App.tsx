@@ -6,6 +6,8 @@ import {
   downloadResponsePdf,
   shareOrCopy,
 } from "./MyAgenda";
+import { TriviaPanel, TRIVIA_LANDING } from "./Trivia";
+import { RemindersPanel } from "./Reminders";
 import { apiUrl, IS_STATIC } from "./api";
 
 type Role = "user" | "assistant" | "system";
@@ -165,8 +167,19 @@ const SUGGESTION_BANK: Suggestion[] = [
   },
   {
     label: "Asistente IA del plan",
-    prompt: "Dame ejemplos de uso del Asistente IA del congreso según la bóveda",
+    prompt: "Dame ejemplos de uso del Asistente IA del congreso según la información del CMU",
     topics: ["plan", "ia"],
+  },
+  {
+    label: "Tijuana 2027",
+    prompt:
+      "¿Cuándo y dónde es el 51° Congreso Internacional de Urología? Datos oficiales y qué aún no está publicado",
+    topics: ["congreso2027", "tijuana"],
+  },
+  {
+    label: "Contacto CMU",
+    prompt: "Dame teléfonos y web oficiales del CMU para el congreso 2027",
+    topics: ["congreso2027", "contacto"],
   },
 ];
 
@@ -194,6 +207,8 @@ function detectTopics(text: string): string[] {
     found.push("mesa", "personas");
   if (/programa|junio|plenaria|sesi[oó]n|curso|horario/.test(t))
     found.push("programa");
+  if (/tijuana|51.?congreso|abril.?2027|2027/.test(t))
+    found.push("congreso2027", "tijuana");
   if (/mi[eé]rcoles|3 de junio/.test(t)) found.push("miercoles");
   if (/jueves|4 de junio/.test(t)) found.push("jueves");
   if (/viernes|5 de junio/.test(t)) found.push("viernes");
@@ -379,7 +394,11 @@ export default function App() {
   const [voiceOut, setVoiceOut] = useState(true);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [agendaOpen, setAgendaOpen] = useState(false);
+  const [triviaOpen, setTriviaOpen] = useState(false);
+  const [remindersOpen, setRemindersOpen] = useState(false);
   const [shareHint, setShareHint] = useState<string | null>(null);
+  const mastheadRef = useRef<HTMLElement | null>(null);
+  const dockRef = useRef<HTMLElement | null>(null);
   const [weather, setWeather] = useState<{
     temperatureC: number;
     condition: string;
@@ -401,6 +420,27 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(threads));
   }, [threads]);
+
+  // El masthead y el dock cambian de alto (móvil, nota del dock, teclado);
+  // publicamos su medida real para que los paneles no queden tapados.
+  useEffect(() => {
+    const publish = () => {
+      const root = document.documentElement;
+      const mast = mastheadRef.current?.getBoundingClientRect().height;
+      const dock = dockRef.current?.getBoundingClientRect().height;
+      if (mast) root.style.setProperty("--masthead-h", `${Math.ceil(mast)}px`);
+      if (dock) root.style.setProperty("--dock-h", `${Math.ceil(dock)}px`);
+    };
+    publish();
+    const ro = new ResizeObserver(publish);
+    if (mastheadRef.current) ro.observe(mastheadRef.current);
+    if (dockRef.current) ro.observe(dockRef.current);
+    window.addEventListener("resize", publish);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", publish);
+    };
+  }, []);
 
   useEffect(() => {
     if (IS_STATIC) return;
@@ -447,6 +487,36 @@ export default function App() {
     setThreads((all) => [t, ...all]);
     setActiveId(t.id);
     setError(null);
+    setHistoryOpen(false);
+    setAgendaOpen(false);
+    setTriviaOpen(false);
+    setRemindersOpen(false);
+  };
+
+  const goHome = () => {
+    setHistoryOpen(false);
+    setAgendaOpen(false);
+    setTriviaOpen(false);
+    setRemindersOpen(false);
+    setError(null);
+    if (hasUserMsgs) {
+      const t = emptyThread();
+      setThreads((all) => [t, ...all]);
+      setActiveId(t.id);
+    }
+  };
+
+  const openTrivia = () => {
+    setTriviaOpen(true);
+    setRemindersOpen(false);
+    setAgendaOpen(false);
+    setHistoryOpen(false);
+  };
+
+  const openReminders = () => {
+    setRemindersOpen(true);
+    setTriviaOpen(false);
+    setAgendaOpen(false);
     setHistoryOpen(false);
   };
 
@@ -692,21 +762,20 @@ export default function App() {
     <div className="shell">
       <div className="atmosphere" aria-hidden />
 
-      <header className="masthead">
-        <div className="masthead-brand">
+      <header className="masthead" ref={mastheadRef}>
+        <button
+          type="button"
+          className="masthead-brand"
+          onClick={goHome}
+          title="Volver al menú principal"
+        >
           <img
-            className="logo-seal"
-            src="/cmu-seal.png?v=3"
-            alt=""
-            width={52}
-            height={52}
+            className="brand-lockup"
+            src="/cmu-logo-oficial.png"
+            alt="Colegio Mexicano de Urología Nacional"
           />
-          <div className="wordmark">
-            <span className="wm-small">Colegio Mexicano de</span>
-            <span className="wm-strong">Urología Nacional</span>
-            <span className="wm-product">Asistente · 50° Congreso 2026</span>
-          </div>
-        </div>
+          <span className="wm-product">Asistente · CMU 2026 → 2027</span>
+        </button>
         <div className="masthead-meta">
           {weather && (
             <div className="insight" title={weather.clothingTip}>
@@ -716,12 +785,24 @@ export default function App() {
               </span>
             </div>
           )}
+          {(hasUserMsgs || triviaOpen || remindersOpen || agendaOpen) && (
+            <button
+              type="button"
+              className="ghost-btn primary-ghost"
+              onClick={goHome}
+              title="Volver al menú principal"
+            >
+              Inicio
+            </button>
+          )}
           <button
             type="button"
             className="ghost-btn"
             onClick={() => {
               setAgendaOpen((v) => !v);
               setHistoryOpen(false);
+              setTriviaOpen(false);
+              setRemindersOpen(false);
             }}
           >
             Mi agenda
@@ -732,6 +813,8 @@ export default function App() {
             onClick={() => {
               setHistoryOpen((v) => !v);
               setAgendaOpen(false);
+              setTriviaOpen(false);
+              setRemindersOpen(false);
             }}
           >
             Sesiones
@@ -753,6 +836,18 @@ export default function App() {
           setAgendaOpen(false);
           void send(p);
         }}
+      />
+
+      <TriviaPanel
+        open={triviaOpen}
+        onClose={() => setTriviaOpen(false)}
+        onHome={goHome}
+      />
+
+      <RemindersPanel
+        open={remindersOpen}
+        onClose={() => setRemindersOpen(false)}
+        onHome={goHome}
       />
 
       {historyOpen && (
@@ -849,6 +944,26 @@ export default function App() {
             <p className="landing-lede">
               Las sugerencias cambian según lo que vas preguntando.
             </p>
+            <div className="landing-modules">
+              <button
+                type="button"
+                className="module-tile trivia-mod"
+                onClick={openTrivia}
+              >
+                <span className="tile-label">{TRIVIA_LANDING.label}</span>
+                <span className="tile-prompt">{TRIVIA_LANDING.blurb}</span>
+              </button>
+              <button
+                type="button"
+                className="module-tile reminders-mod"
+                onClick={openReminders}
+              >
+                <span className="tile-label">Recordatorios</span>
+                <span className="tile-prompt">
+                  WhatsApp · sesiones mensuales y 51° Congreso Tijuana 2027
+                </span>
+              </button>
+            </div>
             {!IS_STATIC && (
               <div className="action-rail">
                 {suggestions.map((s) => (
@@ -963,7 +1078,7 @@ export default function App() {
       {error && <p className="error-line">{error}</p>}
       {shareHint && <p className="share-hint">{shareHint}</p>}
 
-      <footer className="app-dock">
+      <footer className="app-dock" ref={dockRef}>
         <div className="dock-bar">
           <button
             type="button"

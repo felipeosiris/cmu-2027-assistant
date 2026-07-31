@@ -1,0 +1,81 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "breadcrum": "Cáncer renal",
+    "info": [
+      {
+        "title": "¿SE PUEDE PREVENIR EL CÁNCER DE RIÑÓN?",
+        "description": "Existen varios tipos de cáncer que afectan el riñón y por lo tanto diferentes en cuanto a la parte del riñón que les da origen…",
+        "acordeon": {
+          "id": "1",
+          "isOpen": false,
+          "information": "cada uno de estos cánceres tienen factores de riesgo particulares, pero como en casi todos los cánceres, el fumar es el principal factor de riesgo. Es necesario por ejemplo dejar de fumar por lo menos una o dos décadas para regresar al riesgo que se tenía antes de fumar. Otros factores identificados como de riesgo para cáncer de riñón son el contacto con anilinas (usadas generalmente en la industriua textil para el teñido de telas), la obesidad y algunas enfermedades de tipo congénito."
+        }
+      },
+      {
+        "title": "¿CÓMO SE PUEDE DIGNOSTICAR EL CÁNCER?",
+        "description": "Hasta hace unas dos décadas los cánceres de riñón se diagnosticaban por los síntomas que el paciente presentaba…",
+        "acordeon": {
+          "id": "2",
+          "isOpen": false,
+          "information": "en la consulta con el médico, esto es un abultamiento palpable en el flanco, pérdida de peso y sangre en la orina. La mayoría de estos cánceres ya eran incurables en el momento del diagnóstico. A médida que con mayor frecuencia se someten las personas a estudios generales de salud como los “check up” los tumores de riñón cada vez más se encuentran de manera fortuita en estudios como los ultrasonidos abdominales, o pueden sospecharse al estudiarse los pacientes por presentar un examen de orina con sangre microscópica o por haber orinado sangre visible. El mejor estudio de imagen para completar el estudio de un paciente con cáncer es la tomografía abdominal, que además nos permite evidenciar en una buena medida la extensión a otros órganos abdominales."
+        }
+      },
+      {
+        "title": "SÍNTOMAS DEL CÁNCER DE RIÑÓN LOCALIZADO",
+        "description": "El cáncer de riñón localizado no da ningún síntoma, generalmente se detecta de manera fortuita en estudios de imagen…",
+        "acordeon": {
+          "id": "3",
+          "isOpen": false,
+          "information": "solicitados por otra causa, pero en algunos pacientes puede haber sangre en un examen de orina, que no siempre puede manifestarse como orina roja al ser microscópica (muy escasa)."
+        }
+      },
+      {
+        "title": "SÍNTOMAS DEL CÁNCER DE RIÑÓN AVANZADO",
+        "description": "Aún en nuestros días muchos pacientes acuden con tumores incurables de riñón, al creer falsamente que los cánceres…",
+        "acordeon": {
+          "id": "4",
+          "isOpen": false,
+          "information": "deben dar síntomas. Lo cierto es que para que un cáncer genere síntomas, casi siempre se encuentra ya en una etapa muy avanzada y a veces incurable. Los cánceres avanzados de riñón pueden manifestarse como orina con sangre, pérdida de peso de causa no identificada, dolor abdominal en el flanco, falta de apetito y sensación de un abultamiento en el flanco."
+        }
+      },
+      {
+        "title": "¿SE PUEDE CONFUNDIR CON OTRA ENFERMEDAD?",
+        "description": "Anque esto es poco probable, sí existen enfermedades infecciosas y tumores benignos que semejan el cáncer de riñón…",
+        "acordeon": {
+          "id": "5",
+          "isOpen": false,
+          "information": "no obstante los estudios de imagen como la tomografía abdominal permiten pronosticar con certeza por arriba del 90% la presencia de un cáncer de riñón."
+        }
+      },
+      {
+        "title": "TRATAMIENTOS PARA EL CÁNCER DE RIÑÓN",
+        "description": "Desafortunadamente la mayoría de los tumores que se originan en el riñón solo pueden curarse con cirugía y la quimioterapia…",
+        "acordeon": {
+          "id": "6",
+          "isOpen": false,
+          "information": "o radioterapia no son opciones curativas. Los tratamientos en pacientes con cánceres de riñón no curables tienen a mejorar transitoriamente la calidad de vida, e incluyen medicamentos llamados inmunoterapia o terapia blanco molecular que tienen beneficios la mayoría de las veces marginales."
+        }
+      },
+      {
+        "title": "CIRUGÍA CONSERVADORA DE NEFRONAS",
+        "description": "Actualmente la cirugía conservadora de nefronas o conservadora del riñón se ha extendido en su uso. A pesar de ser un procedimiento …",
+        "acordeon": {
+          "id": "7",
+          "isOpen": false,
+          "information": "algunas veces más complicado que quitar el riñón en su totalidad, es una opción válida para pacientes con tumores que miden menos de 4 cm confinados al riñón y que por su localización en el riñón permiten realizar una resección y reconstrucción satisfactorias. Los resultados de este tipo de cirugías en tumores bien seleccionados tienen resultados semejantes a los obtenidos en pacientes a los que se retira por completo el riñón."
+        }
+      },
+      {
+        "title": "¿QUÉ PASA SI NO TRATO EL CÁNCER DE RIÑÓN?",
+        "description": "Si el cáncer de riñón no es tratado, el paciente desarrollará metástasis, ésto es, diseminación del tumor a otros órganos…",
+        "acordeon": {
+          "id": "8",
+          "isOpen": false,
+          "information": "La diseminación común del cáncer de riñón es al hígado, pulmón, cerebro y huesos, que en el mismo orden tendrán como manifestaciones clínicas falla hepática, dificultad respiratoria o sangrado en el esputo, convulsiones y dolor óseo. Además de los antes referidos por la afección del cáncer de riñón a otros órganos, no debemos dejar a un lado las que se generarán como consecuencia de la afección renal por el tumor, principalmente sangrado intenso en la orina y dolor."
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "breadcrum": "VEJIGA",
+    "info": [
+      {
+        "title": "Cistitis (infecciones)",
+        "description": "Es una inflamación de la vejiga, la mayoría de las veces causada por infecciones bacterianas…",
+        "acordeon": {
+          "id": "1",
+          "isOpen": false,
+          "information": "Una infección bacteriana puede ser dolorosa y molesta. Convirtiéndose en un serio problema de salud si se esparce a los riñones. Los síntomas comunes incluyen urgencia, ardor al orinar, intermitencia, sangre en la orina, olor fuerte, dolor, sensación de presión en el abdomen y fiebre."
+        }
+      },
+      {
+        "title": "cistitis intersticial",
+        "description": "También se le conoce como síndrome de la vejiga dolorosa, es una condición crónica…",
+        "acordeon": {
+          "id": "2",
+          "isOpen": false,
+          "information": "dolorosa en donde se experimenta dolor al aumentar la presión en la vejiga. La vejiga es un órgano hueco que almacena orina y se expande hasta llenarse, emite una señal al cerebro cuando es tiempo de orinar, comunicándose con nervios pélvicos. Esto provoca las ganas de orinar. Con la cistitis intersticial esta señal se cruza y se sienten ganas más seguido y con menor volumen. Afecta más a mujeres."
+        }
+      },
+      {
+        "title": "cáncer de vejiga",
+        "description": "La vejiga como otras partes del sistema urinario es susceptible a desarrollar cáncer…",
+        "acordeon": {
+          "id": "3",
+          "isOpen": false,
+          "information": "el tipo más común es el carcinoma de células transicionales, que comienza en las células uroteliales que revisten el interior de la vejiga. Las células uroteliales son células de transición, que pueden cambiar de forma y se extienden cuando la vejiga está llena. Este tipo de cáncer también se llama carcinoma urotelial. Las personas que fuman tienen un aumento de riesgo de presentar cáncer de vejiga. La exposición a ciertos productos químicos y las infecciones crónicas de la vejiga también pueden aumentar este riesgo. El signo más común de cáncer de vejiga es sangre en la orina."
+        }
+      },
+      {
+        "title": "vejiga caída (Cistocele)",
+        "description": "Las mujeres por el proceso de envejecimiento aunado a los partos vaginales…",
+        "acordeon": {
+          "id": "4",
+          "isOpen": false,
+          "information": "pueden tener propensión al desplazamiento de la vejiga hacia la vagina lo que se conoce como cistocele, esto puede estar acompañado o no de perdida a través de la uretra (el ducto por el que se orina) de orina lo que se conoce como incontinencia."
+        }
+      }
+    ]
+  }
+}

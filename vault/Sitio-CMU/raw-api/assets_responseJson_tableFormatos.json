@@ -1,0 +1,103 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "header": {
+      "item": "Formatos de Seguros",
+      "description": "Descripción",
+      "actions": "Archivos"
+    },
+    "content": [
+      {
+        "item": "Atlas",
+        "description": "Informe Médico Atlas",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/informe-medico-Atlas.pdf"
+        }
+      },
+      {
+        "item": "AXA",
+        "description": "Informe Médico AXA",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/informe-medico-AXA.pdf"
+        }
+      },
+      {
+        "item": "Banorte",
+        "description": "Informe Médico Banorte",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/informe-medico-Banorte.pdf"
+        }
+      },
+      {
+        "item": "GNP",
+        "description": "Informe Médico GNP",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/informe-medico-GNP.pdf"
+        }
+      },
+      {
+        "item": "Mapfre",
+        "description": "Informe Médico Mapfre",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/informe-medico-Mapfre.pdf"
+        }
+      },
+      {
+        "item": "Metlife",
+        "description": "Informe Médico Metlife",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/informe-medico-Metlife.pdf"
+        }
+      },
+      {
+        "item": "Plan Seguro",
+        "description": "Informe Médico Plan Seguro",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/informe-medico-Plan-Seguro.pdf"
+        }
+      },
+      {
+        "item": "Seguros Monterrey",
+        "description": "Informe Médico Seguros Monterrey",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/informe-medico-Seguros-Monterrey.pdf"
+        }
+      },
+      {
+        "item": "Inbursa",
+        "description": "Informe Médico Inbursa",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/informe-medico-Inbursa.pdf"
+        }
+      },
+      {
+        "item": "Reporte Patología Biopsia",
+        "description": "",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/patologia-Biopsia-prostatica.pdf"
+        }
+      },
+      {
+        "item": "Prostatectomía Radical",
+        "description": "",
+        "actions": {
+          "name": "Descarga Aquí",
+          "url": "../assets/formatosSeguros/prostatectomia-radical.pdf"
+        }
+      }
+    ],
+    "totalColumns": 3,
+    "notes": ""
+  }
+}

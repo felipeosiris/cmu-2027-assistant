@@ -1,33 +1,30 @@
 # Patrocinadores — 50° Congreso CMU 2026
 
-Fuente: logos del programa PDF + actividades nominativas. Índice: [[programa.json]]
+Fuente: Canva “Patrocinadores CMUN 26” + programa. Logos en `client/public/assets/sponsors/logos/`.
+
+## Diamante
+- **Adium** — `adium.png`
+- **Astellas** — `astellas.png` (actividades nominativas en programa)
 
 ## Oro
-- Liomont
-- Senosiain
-- Siegfried Rhein
+- **Liomont** — `liomont.png`
+- **Senosiain** — `senosiain.png`
+- **Siegfried Rhein** — `siegfried-rhein.png`
 
 ## Plata
-- Johnson & Johnson Innovative Medicine
-- Global Care Products
-- PiSA Farmacéutica
-- AstraZeneca
-- **Boston Scientific** — taller vapor HBP (jueves 4, Quimixto)
-- Endoscopia Guadalajara
+- **Johnson & Johnson Innovative Medicine** — `johnson-johnson.png`
+- **Global Care Products** — `global-care.png`
+- **Boston Scientific** — `boston-scientific.png` — taller vapor HBP (jueves 4, Quimixto)
+- **PiSA Farmacéutica** — `pisa.png`
+- **AstraZeneca** — `astrazeneca.png`
+- **Endoscopia Guadalajara** — `endoscopia-guadalajara.png`
 
-## Bronce (selección)
-- Megalabs, Grünenthal, Exeltis
-- **ASAC México** — desayuno IPI ASAC (jueves 4, Maito)
-- **TENA** — desayuno continencia (jueves 4, Majahuitas)
-- Dewimed, Adisat, Suequimed, TEP, Demesa, entre otros
+## Bronce / Medical Plus
+Ver diapositivas 4–5 del Canva y `logos/bronce-*.png` / `extra-*.png`. Incluye ASAC, TENA, Silanes, Bayer, etc. (actividades en programa).
 
-## Medical Plus / otros
-- **Silanes** — simposio (viernes 5)
-- Bayer, Siemens Healthineers, SaludDigna, Quanta System, Promedon, etc.
+## Actividades patrocinadas (selección)
+- **Astellas** — Martes 2 · cáncer de próstata · Maito; Miércoles 3 · simposio NCCN
+- **Boston Scientific** — taller vapor HBP
+- **TENA / ASAC / Silanes** — desayunos / simposios (ver programa)
 
-## Actividades patrocinadas (no necesariamente en cinta Oro/Plata)
-- **Astellas**
-  - Martes 2 · 11:00–13:00 · Cáncer de próstata avanzado · Maito
-  - Miércoles 3 · Simposio NCCN
-
-Pregunta al asistente: “¿Quién patrocina el simposio de Astellas?” / “Lista Oro y Plata”.
+Trivias jugables en la app: Diamante + Oro + subset Plata (hub de trivias).

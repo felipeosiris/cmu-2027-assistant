@@ -1,0 +1,44 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "breadcrum": "Prostatitis (Inflamación Prostática)",
+    "info": [
+      {
+        "title": "QUE ES LA PROSTATITIS",
+        "description": "Es la inflamación de la próstata.",
+        "acordeon": null
+      },
+      {
+        "title": "¿QUE TIPO DE PROSTATITIS HAY?",
+        "description": "Existen varios tipos: bacteriana aguda y crónica, no bacterianas con y sin leucocitos en el líquido prostático y la que es asintomática.",
+        "acordeon": null
+      },
+      {
+        "title": "SÍNTOMAS DE LA PROSTATITIS",
+        "description": "Dolor perineal y pélvico (entre el ano y la bolsa de los testículos), ardor y dolor al orinar, fiebre, mal estado general, sangre en semen u orina.",
+        "acordeon": null
+      },
+      {
+        "title": "DIAGNÓSTICO DE LA PROSTATITIS",
+        "description": "Por los síntomas, estudios de sangre, del líquido prostático y orina",
+        "acordeon": null
+      },
+      {
+        "title": "TRATAMIENTO DE LA PROSTATITIS",
+        "description": "Habitualmente con antibióticos y antiinflamatorios",
+        "acordeon": null
+      },
+      {
+        "title": "¿PUEDE CAUSAR CANCER DE PROSTATA?",
+        "description": "Son dos enfermedades diferentes, sin embargo hay estudios que han mostrado asociación de la prostatitis crónica y cáncer prostático.",
+        "acordeon": null
+      },
+      {
+        "title": "¿SE PUEDE EVITAR LA PROSTATITIS?",
+        "description": "Si, en gran medida puedo evitarlo previniendo enfermedades de transmisión sexual y evitando tener relaciones introduciendo el pene por el ano, sin la protección del preservativo.",
+        "acordeon": null
+      }
+    ]
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "breadcrum": "Infecciones de Riñón",
+    "info": [
+      {
+        "title": "¿QUÉ ES UNA PIELONEFRITIS AGUDA?",
+        "description": "Es la inflamación del riñón que se desencadena rápidamente (en horas o días)",
+        "acordeon": null
+      },
+      {
+        "title": "¿CUÁL ES LA CAUSA?",
+        "description": "Habitualmente son bacterias gran negativas (Echerichia Coli)",
+        "acordeon": null
+      },
+      {
+        "title": "¿QUÉ SÍNTOMAS DA?",
+        "description": "Fiebre, mal estado general y dolor en el costado, puede haber molestias para orinar y sangre en la orina",
+        "acordeon": null
+      },
+      {
+        "title": "¿CÓMO SE DIAGNOSTICA?",
+        "description": "Por los síntomas y la demostración de alteraciones por el crecimiento bacteriano en la orina, los estudios también ayudan a ver la inflamación del riñón.",
+        "acordeon": null
+      },
+      {
+        "title": "¿CÓMO SE TRATA?",
+        "description": "Habitualmente con hidratación, antibióticos intravenosos o intramusculares, analgésicos, medidas generales y muchas veces se requiere hospitalización.",
+        "acordeon": null
+      },
+      {
+        "title": "¿SE PUEDE CONFUNDIR CON OTRA ENFERMEDAD?",
+        "description": "Si habitualmente con cálculos que bloquean el drenaje del riñón a la vejiga (uréter)",
+        "acordeon": null
+      }
+    ]
+  }
+}

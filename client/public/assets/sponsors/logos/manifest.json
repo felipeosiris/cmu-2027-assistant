@@ -1,0 +1,508 @@
+[
+  {
+    "id": "adium",
+    "file": "/assets/sponsors/logos/adium.png",
+    "page": 1,
+    "box": [
+      41,
+      125,
+      272,
+      209
+    ]
+  },
+  {
+    "id": "astellas",
+    "file": "/assets/sponsors/logos/astellas.png",
+    "page": 1,
+    "box": [
+      322,
+      125,
+      554,
+      209
+    ]
+  },
+  {
+    "id": "liomont",
+    "file": "/assets/sponsors/logos/liomont.png",
+    "page": 2,
+    "box": [
+      93,
+      107,
+      277,
+      173
+    ]
+  },
+  {
+    "id": "senosiain",
+    "file": "/assets/sponsors/logos/senosiain.png",
+    "page": 2,
+    "box": [
+      317,
+      107,
+      502,
+      173
+    ]
+  },
+  {
+    "id": "siegfried-rhein",
+    "file": "/assets/sponsors/logos/siegfried-rhein.png",
+    "page": 2,
+    "box": [
+      205,
+      187,
+      389,
+      252
+    ]
+  },
+  {
+    "id": "plata-1",
+    "file": "/assets/sponsors/logos/plata-1.png",
+    "page": 3,
+    "box": [
+      34,
+      107,
+      200,
+      166
+    ]
+  },
+  {
+    "id": "plata-2",
+    "file": "/assets/sponsors/logos/plata-2.png",
+    "page": 3,
+    "box": [
+      214,
+      107,
+      381,
+      166
+    ]
+  },
+  {
+    "id": "plata-3",
+    "file": "/assets/sponsors/logos/plata-3.png",
+    "page": 3,
+    "box": [
+      394,
+      107,
+      561,
+      166
+    ]
+  },
+  {
+    "id": "plata-4",
+    "file": "/assets/sponsors/logos/plata-4.png",
+    "page": 3,
+    "box": [
+      34,
+      180,
+      200,
+      238
+    ]
+  },
+  {
+    "id": "plata-5",
+    "file": "/assets/sponsors/logos/plata-5.png",
+    "page": 3,
+    "box": [
+      214,
+      180,
+      381,
+      238
+    ]
+  },
+  {
+    "id": "plata-6",
+    "file": "/assets/sponsors/logos/plata-6.png",
+    "page": 3,
+    "box": [
+      394,
+      180,
+      561,
+      238
+    ]
+  },
+  {
+    "id": "bronce-1",
+    "file": "/assets/sponsors/logos/bronce-1.png",
+    "page": 4,
+    "box": [
+      99,
+      88,
+      224,
+      132
+    ]
+  },
+  {
+    "id": "bronce-2",
+    "file": "/assets/sponsors/logos/bronce-2.png",
+    "page": 4,
+    "box": [
+      235,
+      88,
+      360,
+      132
+    ]
+  },
+  {
+    "id": "bronce-3",
+    "file": "/assets/sponsors/logos/bronce-3.png",
+    "page": 4,
+    "box": [
+      371,
+      88,
+      496,
+      132
+    ]
+  },
+  {
+    "id": "bronce-4",
+    "file": "/assets/sponsors/logos/bronce-4.png",
+    "page": 4,
+    "box": [
+      99,
+      143,
+      224,
+      187
+    ]
+  },
+  {
+    "id": "bronce-5",
+    "file": "/assets/sponsors/logos/bronce-5.png",
+    "page": 4,
+    "box": [
+      235,
+      143,
+      360,
+      187
+    ]
+  },
+  {
+    "id": "bronce-6",
+    "file": "/assets/sponsors/logos/bronce-6.png",
+    "page": 4,
+    "box": [
+      371,
+      143,
+      496,
+      187
+    ]
+  },
+  {
+    "id": "bronce-7",
+    "file": "/assets/sponsors/logos/bronce-7.png",
+    "page": 4,
+    "box": [
+      167,
+      198,
+      292,
+      242
+    ]
+  },
+  {
+    "id": "bronce-8",
+    "file": "/assets/sponsors/logos/bronce-8.png",
+    "page": 4,
+    "box": [
+      303,
+      198,
+      428,
+      242
+    ]
+  },
+  {
+    "id": "page4-9",
+    "file": "/assets/sponsors/logos/page4-9.png",
+    "page": 4,
+    "box": [
+      167,
+      252,
+      292,
+      296
+    ]
+  },
+  {
+    "id": "page4-10",
+    "file": "/assets/sponsors/logos/page4-10.png",
+    "page": 4,
+    "box": [
+      303,
+      252,
+      428,
+      296
+    ]
+  },
+  {
+    "id": "extra-1",
+    "file": "/assets/sponsors/logos/extra-1.png",
+    "page": 5,
+    "box": [
+      23,
+      59,
+      125,
+      95
+    ]
+  },
+  {
+    "id": "extra-2",
+    "file": "/assets/sponsors/logos/extra-2.png",
+    "page": 5,
+    "box": [
+      135,
+      59,
+      237,
+      95
+    ]
+  },
+  {
+    "id": "extra-3",
+    "file": "/assets/sponsors/logos/extra-3.png",
+    "page": 5,
+    "box": [
+      246,
+      59,
+      348,
+      95
+    ]
+  },
+  {
+    "id": "extra-4",
+    "file": "/assets/sponsors/logos/extra-4.png",
+    "page": 5,
+    "box": [
+      358,
+      59,
+      460,
+      95
+    ]
+  },
+  {
+    "id": "extra-5",
+    "file": "/assets/sponsors/logos/extra-5.png",
+    "page": 5,
+    "box": [
+      469,
+      59,
+      572,
+      95
+    ]
+  },
+  {
+    "id": "extra-6",
+    "file": "/assets/sponsors/logos/extra-6.png",
+    "page": 5,
+    "box": [
+      23,
+      104,
+      125,
+      139
+    ]
+  },
+  {
+    "id": "extra-7",
+    "file": "/assets/sponsors/logos/extra-7.png",
+    "page": 5,
+    "box": [
+      135,
+      104,
+      237,
+      139
+    ]
+  },
+  {
+    "id": "extra-8",
+    "file": "/assets/sponsors/logos/extra-8.png",
+    "page": 5,
+    "box": [
+      246,
+      104,
+      348,
+      139
+    ]
+  },
+  {
+    "id": "page5-9",
+    "file": "/assets/sponsors/logos/page5-9.png",
+    "page": 5,
+    "box": [
+      358,
+      104,
+      460,
+      139
+    ]
+  },
+  {
+    "id": "page5-10",
+    "file": "/assets/sponsors/logos/page5-10.png",
+    "page": 5,
+    "box": [
+      469,
+      104,
+      572,
+      139
+    ]
+  },
+  {
+    "id": "page5-11",
+    "file": "/assets/sponsors/logos/page5-11.png",
+    "page": 5,
+    "box": [
+      23,
+      148,
+      125,
+      184
+    ]
+  },
+  {
+    "id": "page5-12",
+    "file": "/assets/sponsors/logos/page5-12.png",
+    "page": 5,
+    "box": [
+      134,
+      148,
+      237,
+      184
+    ]
+  },
+  {
+    "id": "page5-13",
+    "file": "/assets/sponsors/logos/page5-13.png",
+    "page": 5,
+    "box": [
+      246,
+      148,
+      348,
+      184
+    ]
+  },
+  {
+    "id": "page5-14",
+    "file": "/assets/sponsors/logos/page5-14.png",
+    "page": 5,
+    "box": [
+      358,
+      148,
+      460,
+      184
+    ]
+  },
+  {
+    "id": "page5-15",
+    "file": "/assets/sponsors/logos/page5-15.png",
+    "page": 5,
+    "box": [
+      469,
+      148,
+      572,
+      184
+    ]
+  },
+  {
+    "id": "page5-16",
+    "file": "/assets/sponsors/logos/page5-16.png",
+    "page": 5,
+    "box": [
+      23,
+      193,
+      125,
+      229
+    ]
+  },
+  {
+    "id": "page5-17",
+    "file": "/assets/sponsors/logos/page5-17.png",
+    "page": 5,
+    "box": [
+      134,
+      193,
+      237,
+      229
+    ]
+  },
+  {
+    "id": "page5-18",
+    "file": "/assets/sponsors/logos/page5-18.png",
+    "page": 5,
+    "box": [
+      246,
+      193,
+      348,
+      229
+    ]
+  },
+  {
+    "id": "page5-19",
+    "file": "/assets/sponsors/logos/page5-19.png",
+    "page": 5,
+    "box": [
+      358,
+      193,
+      460,
+      229
+    ]
+  },
+  {
+    "id": "page5-20",
+    "file": "/assets/sponsors/logos/page5-20.png",
+    "page": 5,
+    "box": [
+      469,
+      193,
+      572,
+      229
+    ]
+  },
+  {
+    "id": "page5-21",
+    "file": "/assets/sponsors/logos/page5-21.png",
+    "page": 5,
+    "box": [
+      23,
+      238,
+      125,
+      274
+    ]
+  },
+  {
+    "id": "page5-22",
+    "file": "/assets/sponsors/logos/page5-22.png",
+    "page": 5,
+    "box": [
+      134,
+      238,
+      237,
+      274
+    ]
+  },
+  {
+    "id": "page5-23",
+    "file": "/assets/sponsors/logos/page5-23.png",
+    "page": 5,
+    "box": [
+      246,
+      238,
+      348,
+      274
+    ]
+  },
+  {
+    "id": "page5-24",
+    "file": "/assets/sponsors/logos/page5-24.png",
+    "page": 5,
+    "box": [
+      358,
+      238,
+      460,
+      274
+    ]
+  },
+  {
+    "id": "page5-25",
+    "file": "/assets/sponsors/logos/page5-25.png",
+    "page": 5,
+    "box": [
+      469,
+      238,
+      572,
+      274
+    ]
+  }
+]

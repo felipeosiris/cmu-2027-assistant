@@ -1,0 +1,39 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "breadcrum": "litiasis renal",
+    "info": [
+      {
+        "title": "¿qué tipo de piedras hay?",
+        "description": "La mayoría de las piedras renales tienen en sus componentes calcio, aunque también pueden estar formadas de ácido úrico, entre otros.",
+        "acordeon": null
+      },
+      {
+        "title": "¿qué las origina?",
+        "description": "Aunque pueden estar originadas por distintas causas el patrón común es un estado donde hay poco solvente (agua) y un exceso de solutos (minerales en la orina).",
+        "acordeon": null
+      },
+      {
+        "title": "¿se pueden prevenir?",
+        "description": "Evitar los periodos de deshidratación así como una dieta sin un exceso de sal o proteínas de origen animal, se ha asociado en la disminución en la formación de cálculos.",
+        "acordeon": null
+      },
+      {
+        "title": "Síntomas de las piedras en vías urinarias",
+        "description": "Las piedras que tapan la vía urinaria suelen ser muy sintomáticas ya que causan un dolor cólico súbito en los costados del cuerpo que puede acompañarse de nausea o vómito. Existen piedras asociadas a infección que normalmente no tienen un síntoma característico sino que son descubiertas al estudiar una infección que se presenta de forma repetitiva.",
+        "acordeon": null
+      },
+      {
+        "title": "¿se deben de operar las piedras?",
+        "description": "Esto depende de su tamaño y localización, la mayoría requerirá de algún tratamiento.",
+        "acordeon": null
+      },
+      {
+        "title": "Tratamientos para las piedras",
+        "description": "Actualmente existen muchos tratamientos de mínima invasión para el tratamiento de esta enfermedad, desde ondas de choque que sin aberturas en el cuerpo rompe las piedras directamente en un riñón, el uso de endoscopios (cámaras pequeñas) que pueden navegar por dentro de la vía urinaria y por el uso de distintas energías romper las piedras. También existen distintas cirugías que involucran incisiones en el cuerpo para resolver estos problemas.",
+        "acordeon": null
+      }
+    ]
+  }
+}

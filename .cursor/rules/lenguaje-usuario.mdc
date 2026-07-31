@@ -1,0 +1,13 @@
+---
+description: Lenguaje al usuario — no decir bóveda/vault
+alwaysApply: true
+---
+
+# Lenguaje al usuario final
+
+En textos de UI, prompts de sugerencia, respuestas del asistente y demos:
+
+- **Nunca** mencionar “bóveda”, “vault”, “Obsidian” ni rutas internas de archivos.
+- Preferir: **base de datos interna**, **información del congreso** o **datos del CMU**.
+
+Internamente (código, APIs `/api/vault`, carpetas) se puede seguir llamando vault; solo afecta lo que ve o escucha el médico/usuario.

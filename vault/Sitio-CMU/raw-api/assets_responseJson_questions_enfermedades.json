@@ -1,0 +1,54 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": {
+    "breadcrum": "Enfermedades de Transmisión sexual",
+    "info": [
+      {
+        "title": "papiloma virus",
+        "description": "Es una de las pocas enfermedades de transmisión sexual que no se protegen eficientemente por el uso del preservativo…",
+        "acordeon": {
+          "id": "1",
+          "isOpen": false,
+          "information": "lo que la hace ser bastante común. Se considera una infección no curable. Se ha estimado que entre 5 y 7 de cada 10 mujeres, durante su vida sexual adquieren el virus del papiloma humano en sus genitales, muchas de ellas quedando como portadoras asintomáticas y otras con manifestaciones clínicas como los condilomas (verrugas genitales) o el cáncer de cuello uterino. Las estadísticas en el hombre son menos exactas, pero no es una enfermedad exclusiva de hombres o mujeres. En el hombre puede de la misma forma no haber manifestaciones clínicas a pesar de estar infectado, y cuando las hay, éstas corresponden a condilomas (verrugas en los genitales) o cáncer de pene. Existen alrededor de 200 tipos de virus de papiloma, pero solo 40 aproximadamente afectan los genitales, y estos finalmente se dividen en dos grupos: Alto riesgo y bajo riesgo para cáncer. Los tipos más comunes de este virus son los números 6, 11, 16 y 18. Los primeros dos se consideran de bajo riesgo y los últimos de alto riesgo. Los cánceres que más se asocian al antecedente de infección por virus del papiloma humano son el de cuello de la matriz, de pene y de ano. Aún cuando haya desaparecido la lesión de papiloma el riesgo de cáncer existe, y éste generalmente ocurre una o dos décadas después de la infección inicial. Las vacunas disponibles en el mercado, aplicadas en la adolescencia, disminuyen sustancialmente el riesgo de infección por virus de papiloma humano y de los cánceres asociados a él, no obstante solo protegen contra los 4 tipos de papiloma genital más comunes en el mejor de los casos."
+        }
+      },
+      {
+        "title": "infección por chlamydia trachomatis",
+        "description": "En algunos grupos poblacionales Chlamydia trachomatis está presente hasta en el 30% de los sujetos…",
+        "acordeon": {
+          "id": "2",
+          "isOpen": false,
+          "information": "(hombres y mujeres), es una de las bacterias más comunes transmitidas sexualmente. Un gran porcentaje de la población infectada puede no tener síntomas (Hasta 80%), y cuando existen, las manifestaciones clínicas casi siempre en el hombre son ardor o cosquilleo dentro del pene durante la micción, secreción blanca o transparente escasa que sale a través del pene y que a veces se confunde con líquido eyaculatorio; en la mujer la mayoría de las veces es asintomática pero en algunas puede haber mal olor de los genitales, manchado de la ropa interior por flujo vaginal escaso y molestias vaginales en el acto sexual. El antecedente de un contacto sexual de riesgo entre 1 y 3 semanas antes de la aparición de los síntomas es frecuente. La importancia de esta enfermedad es por su asociación con problemas de fertilidad al estrechar los conductos que llevan los óvulos o los espermatozoides y al disminuir la calidad del semen."
+        }
+      },
+      {
+        "title": "GONORREA",
+        "description": "La gonorrea es causada por una bacteria que típicamente afecta el conducto urinario del pene en el hombre y la vagina…",
+        "acordeon": {
+          "id": "3",
+          "isOpen": false,
+          "information": "y cuello de la matriz en la mujer. En el hombre las manifestaciones típicas son el ardor intenso al pasar la orina dentro del pene y una secreción cremosa, amarillo verdosa que sale por el orificio de la micción. En la mujer el flujo de las mismas características que en el hombre a través de la vagina y dolor durante el coito son lo habitual. Nuevamente como en la infección por Chlamydia, hay portadores y portadoras sin síntomas hasta en el 50% de los casos. El tiempo de incubación de la gonorrea es más corto que con Chlamydia, y se puede identificar un contacto de riesgo generalmente entre 3-5 días antes de la aparición de los datos clínicos. También se asocia a problemas de fertilidad, estrecheces en el conducto urinario y embarazos ectópicos como secuelas."
+        }
+      },
+      {
+        "title": "SÍFILIS",
+        "description": "Es afección por la bacteria Treponema pallidum, la mayoría de las personas afectadas tienen antecedente…",
+        "acordeon": {
+          "id": "4",
+          "isOpen": false,
+          "information": "sexual de riesgo entre 10-90 días antes, aunque en promedio son tres semanas. El chancro es la lesión típica de la sífilis y este es una úlcera en el pene, labios de la vagina o ano, casis siempre única, de 1 a 3 cm, profunda, con bordes duros y que supura. Hay una desproporción entre lo aparatoso del chancro y los síntomas, toda vez que no hay síntomas locales (ardor, comezón o dolor). Algunos pacientes pueden tener fiebre de baja intensidad y aumento de volumen de las inglés. El diagnóstico y tratamiento tempranos de esta enfermedad es fundamental por su facilidad para desaparecer el chancro pero permanecer la bacteria de las sífilis y generar algunos años después afecciones cardíacas o neurológicas graves."
+        }
+      },
+      {
+        "title": "HIV – SIDA",
+        "description": "Es una enfermedad viral incurable adquirida por contacto sexual o por contaminación sanguínea o de fluidos procedentes…",
+        "acordeon": {
+          "id": "5",
+          "isOpen": false,
+          "information": "de personas infectadas. Hasta hace poco las transfusiones sanguíneas y compartir jeringas para uso de drogas intravenosas, eran las principales causas de la adquisición de la enfermedad, ahora, el contacto sexual no protegido (sin condón) con una pareja desconocida o de riesgo es la causa más común. Generalmente la enfermedad no genera síntomas cuando se adquiere, o puede manifestarse como síntomas de un resfriado leve que se resuelve espontáneamente. Una vez se ha adquirido el virus de la inmunodeficiencia humana éste ingresará a los glóbulos blancos del paciente y permenecerá sin manifestaciones clínicas por varios añoñs e incluso décadas. Finalmente el cuadro clínico del SIDA (Sídrome de inmunodeficiencia adquirida) que es la etapa final de la enfermedad, es el resultado de la destrucción e inhabilitamiento masivo de los glóbulos blancos por el virus, lo que se manifiesta con una baja importante de la capacidad para defenderse de las enfermedades triviales como diarrea o gripe (diarrea o enfermedades respiratorias crónicas o frecuentes), a la aparición de enfermedades atípicas como cánceres cutáneos y a una disminución importante de la masa muscular. No existe tratamiento para curar la enfermedad, y los medicamentos disponibles hasta ahora solo prolongan la sobrevida. -Sangre en la Orina (HEMATURIA)"
+        }
+      }
+    ]
+  }
+}

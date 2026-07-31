@@ -265,7 +265,7 @@ export async function resolveSpeakerPhoto(
         localPath: existingPhoto,
         source: "vault",
         confidence: 1,
-        reason: "Foto en bóveda",
+        reason: "Foto en base de datos interna",
       };
     }
   }

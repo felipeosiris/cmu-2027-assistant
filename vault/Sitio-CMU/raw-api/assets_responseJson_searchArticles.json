@@ -1,0 +1,47 @@
+{
+  "data": [
+    {
+      "id": "1",
+      "image": "../assets/search/imagen1.png",
+      "title": "PRAISE-U Calls for cooperation for prostate cancer screening",
+      "date": "19 AL 23 DE MARZO 2024",
+      "description": "Descripcion Blog numero 1",
+      "htmlInformation": "<p><b>HOLA COMO ESTAS</b> espero que estes bien</p>"
+    },
+    {
+      "id": "2",
+      "image": "../assets/search/imagen2.png",
+      "title": "PRAISE-U Calls for cooperation for prostate cancer screening",
+      "date": "19 AL 23 DE MARZO 2024",
+      "description": "Descripcion Blog numero 2"
+    },
+    {
+      "id": "3",
+      "image": "../assets/search/imagen3.png",
+      "title": "PRAISE-U Calls for cooperation for prostate cancer screening",
+      "date": "19 AL 23 DE MARZO 2024",
+      "description": "Descripcion Blog numero 3"
+    },
+    {
+      "id": "4",
+      "image": "../assets/search/imagen4.png",
+      "title": "PRAISE-U Calls for cooperation for prostate cancer screening",
+      "date": "19 AL 23 DE MARZO 2024",
+      "description": "Descripcion Blog numero 4"
+    },
+    {
+      "id": "5",
+      "image": "../assets/search/imagen5.png",
+      "title": "PRAISE-U Calls for cooperation for prostate cancer screening",
+      "date": "19 AL 23 DE MARZO 2024",
+      "description": "Descripcion Blog numero 5"
+    },
+    {
+      "id": "6",
+      "image": "../assets/search/imagen6.png",
+      "title": "PRAISE-U Calls for cooperation for prostate cancer screening",
+      "date": "19 AL 23 DE MARZO 2024",
+      "description": "Descripcion Blog numero 6"
+    }
+  ]
+}

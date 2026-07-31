@@ -1,20 +1,23 @@
 # Mesa Directiva CMUN 2025–2027
 
+> Fuente oficial sitio cmu.org.mx (`boardDirectors.json`, scrapiado 2026-07-31).
+
 | Persona | Rol |
 |---------|-----|
 | [[Personas/Andrés Hernández Porras]] | Presidente |
-| [[Personas/Alejandro Sierra Torres]] | Mesa Directiva |
-| [[Personas/Fernando Maldonado Ávila]] | Mesa Directiva |
-| [[Personas/Félix Santaella Torres]] | Mesa Directiva |
-| [[Personas/Efraín Maldonado Alcaraz]] | Mesa Directiva |
-| [[Personas/Itzel Sánchez Ruvalcaba]] | Mesa Directiva |
-| [[Personas/Edgar Beltrán Suárez]] | Mesa Directiva |
-| [[Personas/Hegel T. Santamaría]] | Mesa Directiva |
-| [[Personas/Juan Francisco Lizárraga Salas]] | Mesa Directiva |
+| [[Personas/Félix Santaella Torres]] | Vicepresidente |
+| [[Personas/Edgar Beltrán Suárez]] | Secretario propietario |
+| [[Personas/Alejandro Sierra Torres]] | Secretario propietario |
+| [[Personas/Juan Francisco Lizárraga Salas]] | Secretario propietario suplente |
+| [[Personas/Efraín Maldonado Alcaraz]] | Tesorero |
+| [[Personas/Hegel T. Santamaría]] | Secretario suplente |
+| [[Personas/Fernando Maldonado Ávila]] | Secretario suplente |
+| [[Personas/Itzel Sánchez Ruvalcaba]] | Tesorero suplente |
 
-Congreso: [[50-Congreso-CMU-2026]]
+Detalle de coordinaciones/capítulos: [[Sitio-CMU/Mesa-Directiva-sitio]].
 
+Congreso 2026: [[50-Congreso-CMU-2026]] · Congreso 2027: [[Congreso-2027/51-Congreso-CMU-2027-Tijuana]]
 
 ## Fotos
 
-Retratos oficiales extraídos del programa PDF → [[Personas/fotos/README|Personas/fotos]].
+Retratos oficiales → [[Personas/fotos/README|Personas/fotos]].

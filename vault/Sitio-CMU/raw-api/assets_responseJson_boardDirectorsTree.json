@@ -1,0 +1,171 @@
+{
+  "message": "Operacion Exitosa",
+  "code": 200,
+  "data": [
+    {
+      "id": "uno",
+      "isOpen": false,
+      "title": "Coordinación de contenido digital",
+      "names": [
+        "Dr. Víctor Florentino Camacho Trejo",
+        "Dr. Hegel T. Santamaría"
+      ]
+    },
+    {
+      "id": "dos",
+      "isOpen": false,
+      "title": "Secretario de actas",
+      "names": ["Dr. Itzel Rigel Sánchez Ruvalcaba"]
+    },
+    {
+      "id": "tres",
+      "isOpen": false,
+      "title": "Secretario de Educación y Actividades Científicas",
+      "names": ["Dr. Félix Santaella Torres"]
+    },
+    {
+      "id": "cuatro",
+      "isOpen": false,
+      "title": "Secretario de Actividades Académicas y Científicas de Médicos Residentes",
+      "names": [
+        "Dr. Juan Arriaga Aguilar",
+        "Dr. Israel Presteguín Rosas"
+      ]
+    },
+    {
+      "id": "cinco",
+      "isOpen": false,
+      "title": "Comité de Asuntos Internacionales",
+      "names": ["Dr. René Sotelo Noguera", "Dr. Alejandro Sierra Torres"]
+    },
+    {
+      "id": "seis",
+      "isOpen": false,
+      "title": "Coordinación de Asuntos Legales y Jurisprudencia",
+      "names": ["Dr. Héctor Alfonso Solano Moreno"]
+    },
+    {
+      "id": "siete",
+      "isOpen": false,
+      "title": "Coordinación de Historia, Cultura y Filosofía",
+      "names": ["Dr. Mario Alberto Martínez Romero"]
+    },
+    {
+      "id": "otro",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Andrología",
+      "names": ["Dr. Moisés Abraham Adel Domínguez"]
+    },
+    {
+      "id": "nueve",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Laparoscopía y Robótica",
+      "names": [
+        "Dr. Eric Roberto Sáenz Marrufo",
+        "Dr. Juan Carlos Zapot Martínez"
+      ]
+    },
+    {
+      "id": "diez",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Endourología",
+      "names": [
+        "Dr. Enrique Pulido Contreras",
+        "Dr. Miguel Ángel García Padilla",
+        "Dr. Edgar Beltrán Suárez"
+      ]
+    },
+    {
+      "id": "once",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Oncología",
+      "names": ["Dr. Juan Carlos Huerta Gómez", "Dr. Arturo Delgado Herrera"]
+    },
+    {
+      "id": "doce",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Pediatría",
+      "names": [
+        "Dra. Diana Carolina Rojas Ramírez",
+        "Dra. Karina de los Ángeles Meza Ocaña"
+      ]
+    },
+    {
+      "id": "trece",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Uroginecología, Uroneurología y Urodinamia vs Urología funcional",
+      "names": ["Dr. Rafael Humberto Sandoval Gómez"]
+    },
+    {
+      "id": "catorce",
+      "isOpen": false,
+      "title": "Coordinación Capítulo Cirugía Reconstructiva",
+      "names": ["Dr. Seiichi Fuziwara Ruíz"]
+    },
+    {
+      "id": "quince",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Trasplante Renal",
+      "names": [
+        "Dr. Roberto Martinez De Pinillos Valverde",
+        "Dr. Luis Jiménez Juárez"
+      ]
+    },
+    {
+      "id": "dieciseis",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Mujeres e Inclusión en la Urología",
+      "names": [
+        "Dra. Alejandra Máynez Rivera",
+        "Dra. Evelin Michelle Gómez Plascencía",
+        "Dra. Mary Lol Ve Mendoza Medina"
+      ]
+    },
+    {
+      "id": "diecisiete",
+      "isOpen": false,
+      "title": "Coordinación Regional del Congreso Anual",
+      "names": ["Dr. Fernando Dávila Radilla"]
+    },
+    {
+      "id": "diecinueve",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Nuevas Tecnologías",
+      "names": [
+        "Dr. Ricardo Agustín Leal Marroquín",
+        "Dr. Hegel Trujillo Santamaría",
+        "Dr. Juan Ramón Torres Anguiano"
+      ]
+    },
+    {
+      "id": "veinte",
+      "isOpen": false,
+      "title": "Coordinación de Relaciones con la Industria",
+      "names": ["Dr. Edgar Beltrán Suárez", "Dr. Félix Santaella Torres"]
+    },
+    {
+      "id": "veintiuno",
+      "isOpen": false,
+      "title": "Coordinador de trabajos libres durante Congreso Anual",
+      "names": ["Dr. Humberto Heras Quiroga"]
+    },
+    {
+      "id": "veintidos",
+      "isOpen": false,
+      "title": "Oficina de coordinación de apoyos académicos",
+      "names": [
+        "Dr. Hegel Trujillo Santamaría",
+        "Dr. Juan Ramón Torres Anguiano"
+      ]
+    },
+    {
+      "id": "veintitres",
+      "isOpen": false,
+      "title": "Coordinación del Capítulo de Educación al Paciente",
+      "names": [
+        "Dra. Mary Lol Ve Mendoza Medina",
+        "Dra. Ana María Autrán Gómez"
+      ]
+    }
+  ]
+}
