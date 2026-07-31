@@ -343,35 +343,107 @@ function sessionBucket(ts: number): string {
   return "Anteriores";
 }
 
-async function speakSummary(text: string, summaryHint?: string) {
+/** WAV mudo de un sample: sirve para "bendecir" el elemento de audio. */
+const SILENT_WAV =
+  "data:audio/wav;base64,UklGRiwAAABXQVZFZm10IBAAAAABAAEAgD4AAAB9AAACABAAZGF0YQgAAAAAAAAAAAAAAA==";
+
+/**
+ * iOS y Android solo dejan reproducir audio en un elemento que ya sonó dentro
+ * de un gesto del usuario. Como la voz llega segundos después (al terminar el
+ * streaming), reusamos un único elemento desbloqueado al tocar enviar/mic/voz.
+ */
+let ttsAudio: HTMLAudioElement | null = null;
+let audioUnlocked = false;
+
+function unlockAudio() {
+  if (typeof window === "undefined") return;
+  if (!ttsAudio) {
+    ttsAudio = new Audio();
+    ttsAudio.preload = "auto";
+    ttsAudio.setAttribute("playsinline", "");
+  }
+  if (audioUnlocked) return;
+
+  ttsAudio.muted = true;
+  ttsAudio.src = SILENT_WAV;
+  void ttsAudio
+    .play()
+    .then(() => {
+      ttsAudio?.pause();
+      if (ttsAudio) {
+        ttsAudio.currentTime = 0;
+        ttsAudio.muted = false;
+      }
+      audioUnlocked = true;
+    })
+    .catch(() => {
+      if (ttsAudio) ttsAudio.muted = false;
+    });
+
+  // Safari iOS pide el mismo gesto para speechSynthesis.
+  try {
+    const synth = window.speechSynthesis;
+    if (synth) {
+      const warm = new SpeechSynthesisUtterance(" ");
+      warm.volume = 0;
+      synth.speak(warm);
+      synth.cancel();
+    }
+  } catch {
+    /* sin voz del sistema */
+  }
+}
+
+function speakWithSystemVoice(text: string): boolean {
+  const clean = text
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 280);
+  if (!clean || !window.speechSynthesis) return false;
+  const u = new SpeechSynthesisUtterance(clean);
+  u.lang = "es-MX";
+  const voices = window.speechSynthesis.getVoices();
+  const preferred =
+    voices.find((v) => /dalia|sabina|paulina|mexico|es-mx/i.test(v.name)) ||
+    voices.find((v) => v.lang.startsWith("es"));
+  if (preferred) u.voice = preferred;
+  window.speechSynthesis.speak(u);
+  return true;
+}
+
+/** Devuelve un aviso si no se pudo reproducir nada. */
+async function speakSummary(
+  text: string,
+  summaryHint?: string
+): Promise<string | null> {
   window.speechSynthesis?.cancel();
+  const spoken = summaryHint || text;
+  let url: string | null = null;
   try {
     const res = await fetch(apiUrl("/api/speak"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: summaryHint || text }),
+      body: JSON.stringify({ text: spoken }),
     });
     if (!res.ok) throw new Error(`TTS ${res.status}`);
     const blob = await res.blob();
-    const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
-    audio.onended = () => URL.revokeObjectURL(url);
-    await audio.play();
+    url = URL.createObjectURL(blob);
+
+    const el = ttsAudio || new Audio();
+    ttsAudio = el;
+    el.pause();
+    el.muted = false;
+    el.src = url;
+    const objectUrl = url;
+    el.onended = () => URL.revokeObjectURL(objectUrl);
+    await el.play();
+    return null;
   } catch {
-    const clean = (summaryHint || text)
-      .replace(/```[\s\S]*?```/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 280);
-    if (!clean || !window.speechSynthesis) return;
-    const u = new SpeechSynthesisUtterance(clean);
-    u.lang = "es-MX";
-    const voices = window.speechSynthesis.getVoices();
-    const preferred =
-      voices.find((v) => /dalia|sabina|paulina|mexico|es-mx/i.test(v.name)) ||
-      voices.find((v) => v.lang.startsWith("es"));
-    if (preferred) u.voice = preferred;
-    window.speechSynthesis.speak(u);
+    if (url) URL.revokeObjectURL(url);
+    return speakWithSystemVoice(spoken)
+      ? null
+      : "Toca el altavoz para activar la voz en este dispositivo.";
   }
 }
 
@@ -397,6 +469,7 @@ export default function App() {
   const [triviaOpen, setTriviaOpen] = useState(false);
   const [remindersOpen, setRemindersOpen] = useState(false);
   const [shareHint, setShareHint] = useState<string | null>(null);
+  const [voiceHint, setVoiceHint] = useState<string | null>(null);
   const mastheadRef = useRef<HTMLElement | null>(null);
   const dockRef = useRef<HTMLElement | null>(null);
   const [weather, setWeather] = useState<{
@@ -533,9 +606,12 @@ export default function App() {
     async (raw: string) => {
       const prompt = raw.trim();
       if (!prompt || busy || IS_STATIC || !active) return;
+      // Debe correr dentro del gesto, antes de cualquier await.
+      if (voiceOut) unlockAudio();
       setError(null);
       setInput("");
       setHistoryOpen(false);
+      setVoiceHint(null);
 
       const userMsg: Msg = { id: uid(), role: "user", text: prompt };
       const assistantId = uid();
@@ -637,7 +713,9 @@ export default function App() {
                   : msg
               ),
             }));
-            if (voiceOut) void speakSummary(finalText, voiceSummary);
+            if (voiceOut) {
+              void speakSummary(finalText, voiceSummary).then(setVoiceHint);
+            }
           }
           if (event === "error") {
             const msg =
@@ -691,6 +769,7 @@ export default function App() {
 
   const toggleListen = () => {
     if (IS_STATIC) return;
+    if (voiceOut) unlockAudio();
     if (listening) {
       recognitionRef.current?.stop();
       setListening(false);
@@ -1119,7 +1198,13 @@ export default function App() {
             onClick={() => {
               const next = !voiceOut;
               setVoiceOut(next);
-              if (!next) window.speechSynthesis?.cancel();
+              setVoiceHint(null);
+              if (next) {
+                unlockAudio();
+              } else {
+                window.speechSynthesis?.cancel();
+                ttsAudio?.pause();
+              }
             }}
           >
             {voiceOut ? (
@@ -1157,6 +1242,7 @@ export default function App() {
         {!IS_STATIC && health?.hasApiKey === false && (
           <p className="dock-note">Falta CURSOR_API_KEY en .env</p>
         )}
+        {voiceHint && <p className="dock-note">{voiceHint}</p>}
       </footer>
     </div>
   );
