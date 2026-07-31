@@ -24,11 +24,5 @@ services:
         sync: false
       - key: TTS_VOICE
         value: es-MX-DaliaNeural
-      - key: ELEVENLABS_API_KEY
-        sync: false
-      - key: ELEVENLABS_VOICE_ID
-        value: hpp4J3VqNfWAUOO0d1Us
-      - key: ELEVENLABS_MODEL
-        value: eleven_flash_v2_5
       - key: CMU_AGENT_RUNTIME
         value: cloud

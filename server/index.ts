@@ -47,14 +47,8 @@ const VAULT_CWD =
   (fs.existsSync(bundledVault) ? bundledVault : siblingVault);
 const API_KEY = process.env.CURSOR_API_KEY || "";
 const MODEL_ID = process.env.CURSOR_MODEL || "auto";
-/** Fallback Edge TTS (ES-MX) si ElevenLabs no está disponible. */
+/** Voz natural ES-MX (Edge TTS). */
 const TTS_VOICE = process.env.TTS_VOICE || "es-MX-DaliaNeural";
-const ELEVEN_KEY = process.env.ELEVENLABS_API_KEY || "";
-/** Bella (default library) — plan free; multilingual/flash habla español. */
-const ELEVEN_VOICE =
-  process.env.ELEVENLABS_VOICE_ID || "hpp4J3VqNfWAUOO0d1Us";
-const ELEVEN_MODEL =
-  process.env.ELEVENLABS_MODEL || "eleven_flash_v2_5";
 
 type Session = {
   id: string;
@@ -141,9 +135,8 @@ app.get("/api/health", (_req, res) => {
     hasApiKey: Boolean(API_KEY),
     hasPlacesKey: Boolean(process.env.GOOGLE_PLACES_API_KEY),
     sessions: sessions.size,
-    ttsVoice: ELEVEN_KEY ? `elevenlabs:${ELEVEN_VOICE}` : TTS_VOICE,
-    ttsProvider: ELEVEN_KEY ? "elevenlabs" : "edge",
-    hasElevenLabs: Boolean(ELEVEN_KEY),
+    ttsVoice: TTS_VOICE,
+    ttsProvider: "edge",
     mode: managedCloud ? "cloud" : "local",
   });
 });
@@ -388,7 +381,7 @@ app.use("/api/vault", (req, res, next) => {
   res.sendFile(abs);
 });
 
-/** TTS natural — ElevenLabs (preferido) con fallback Edge ES-MX. */
+/** TTS natural (Edge) — solo resumen corto. */
 app.post("/api/speak", async (req, res) => {
   const raw = String(req.body?.text || "").trim();
   if (!raw) {
@@ -396,60 +389,17 @@ app.post("/api/speak", async (req, res) => {
     return;
   }
   const summary = voiceSummaryFromMarkdown(raw, 280);
-
-  const sendAudio = (audio: Buffer, provider: string) => {
-    res.setHeader("Content-Type", "audio/mpeg");
-    res.setHeader("X-Voice-Summary", encodeURIComponent(summary));
-    res.setHeader("X-TTS-Provider", provider);
-    res.send(audio);
-  };
-
-  if (ELEVEN_KEY) {
-    try {
-      const elRes = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${ELEVEN_VOICE}`,
-        {
-          method: "POST",
-          headers: {
-            "xi-api-key": ELEVEN_KEY,
-            "Content-Type": "application/json",
-            Accept: "audio/mpeg",
-          },
-          body: JSON.stringify({
-            text: summary,
-            model_id: ELEVEN_MODEL,
-            voice_settings: {
-              stability: 0.42,
-              similarity_boost: 0.78,
-              style: 0.15,
-              use_speaker_boost: true,
-            },
-          }),
-        }
-      );
-      if (!elRes.ok) {
-        const detail = await elRes.text().catch(() => "");
-        throw new Error(`elevenlabs ${elRes.status}: ${detail.slice(0, 200)}`);
-      }
-      const audio = Buffer.from(await elRes.arrayBuffer());
-      if (audio.length < 200) throw new Error("elevenlabs audio vacío");
-      sendAudio(audio, `elevenlabs:${ELEVEN_MODEL}`);
-      return;
-    } catch (e) {
-      console.warn(
-        "[tts] ElevenLabs falló, usando Edge:",
-        e instanceof Error ? e.message : e
-      );
-    }
-  }
-
   try {
     const communicate = new Communicate(summary, { voice: TTS_VOICE });
     const chunks: Buffer[] = [];
     for await (const chunk of communicate.stream()) {
       if (chunk.type === "audio" && chunk.data) chunks.push(Buffer.from(chunk.data));
     }
-    sendAudio(Buffer.concat(chunks), `edge:${TTS_VOICE}`);
+    const audio = Buffer.concat(chunks);
+    res.setHeader("Content-Type", "audio/mpeg");
+    res.setHeader("X-Voice-Summary", encodeURIComponent(summary));
+    res.setHeader("X-TTS-Provider", `edge:${TTS_VOICE}`);
+    res.send(audio);
   } catch (e) {
     res.status(500).json({
       error: e instanceof Error ? e.message : "tts error",
@@ -585,13 +535,7 @@ if (!skipListen) {
     console.log(`Model              → ${MODEL_ID}`);
     console.log(`API key            → ${API_KEY ? "ok" : "MISSING (.env)"}`);
     console.log(`Places             → ${process.env.GOOGLE_PLACES_API_KEY ? "ok" : "fallback FanPass"}`);
-    console.log(
-      `TTS                → ${
-        ELEVEN_KEY
-          ? `ElevenLabs ${ELEVEN_VOICE} (${ELEVEN_MODEL}) + Edge fallback`
-          : TTS_VOICE
-      }`
-    );
+    console.log(`TTS                → ${TTS_VOICE}`);
     console.log(`Static UI          → ${fs.existsSync(clientDist) ? clientDist : "missing (run npm run build)"}`);
   });
 }
