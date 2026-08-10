@@ -125,7 +125,7 @@ function queryFromReq(req: Request): Record<string, string> {
 
 // ——— Normalización / filtros (misma lógica que el cliente RichardFlix) ———
 
-export type SportTab = "wnba" | "liga-mx" | "leagues-cup" | "nfl";
+export type SportTab = "en-vivo" | "wnba" | "liga-mx" | "leagues-cup" | "nfl";
 
 type SportMatch = {
   id: string;
@@ -376,7 +376,129 @@ async function buildLeaguesCup(): Promise<SportMatch[]> {
   return sortFootball([...v2, ...v1]);
 }
 
+const LIVE_CATEGORIES = [
+  "football",
+  "basketball",
+  "american-football",
+  "baseball",
+  "hockey",
+  "tennis",
+  "mma",
+  "boxing",
+] as const;
+
+const LIVE_CATEGORY_LABEL: Record<string, string> = {
+  football: "Fútbol",
+  basketball: "Basketball",
+  "american-football": "NFL / Football",
+  baseball: "Beisbol",
+  hockey: "Hockey",
+  tennis: "Tenis",
+  mma: "MMA",
+  boxing: "Box",
+};
+
+/** Ventana desde el tip-off para considerar “en vivo” (por deporte). */
+function liveWindowMs(category: string): number {
+  switch (category) {
+    case "baseball":
+      return 4.5 * 60 * 60 * 1000;
+    case "american-football":
+      return 4 * 60 * 60 * 1000;
+    case "tennis":
+    case "mma":
+    case "boxing":
+      return 5 * 60 * 60 * 1000;
+    case "hockey":
+      return 3.5 * 60 * 60 * 1000;
+    case "basketball":
+      return 3 * 60 * 60 * 1000;
+    default:
+      return 2.5 * 60 * 60 * 1000; // football
+  }
+}
+
+function isJunkLiveListing(m: { id?: string; title?: string }): boolean {
+  const id = (m.id || "").toLowerCase();
+  const title = (m.title || "").toLowerCase();
+  if (id.includes("schedule") || id.includes("nflstreams")) return true;
+  if (title.includes("streams schedule")) return true;
+  return false;
+}
+
+/** Todos los deportes que parecen estar en curso ahora mismo. */
+async function buildEnVivo(): Promise<SportMatch[]> {
+  const now = Date.now();
+  const today = isoDateUTC(new Date());
+  const out: SportMatch[] = [];
+  const seen = new Set<string>();
+
+  // V2 inprogress (hoy) — sobre todo fútbol
+  try {
+    const { body } = await fetchSportSrc("/v2/", {
+      type: "matches",
+      sport: "football",
+      status: "inprogress",
+      date: today,
+    });
+    const data = body as {
+      data?: Array<{ league?: { name?: string }; matches?: Record<string, unknown>[] }>;
+    };
+    for (const lg of data.data || []) {
+      const leagueName = (lg.league?.name || "Fútbol").trim();
+      for (const m of lg.matches || []) {
+        const id = String(m.id || "");
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        out.push({
+          ...normalizeV2(m, leagueName),
+          status: "inprogress",
+        });
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+
+  // V1: categorías multi-deporte con ventana por tip-off
+  await Promise.all(
+    LIVE_CATEGORIES.map(async (category) => {
+      try {
+        const { body } = await fetchSportSrc("/", {
+          data: "matches",
+          category,
+        });
+        const data = body as { data?: Record<string, unknown>[] };
+        const windowMs = liveWindowMs(category);
+        for (const raw of data.data || []) {
+          if (isJunkLiveListing(raw as { id?: string; title?: string })) continue;
+          const id = String(raw.id || "");
+          if (!id || seen.has(id)) continue;
+          const date = Number(raw.date) || 0;
+          if (!date) continue;
+          // Empezó y aún dentro de la ventana del partido
+          if (date > now + 2 * 60 * 1000) continue; // aún no empieza (margen 2 min)
+          if (now - date > windowMs) continue;
+          seen.add(id);
+          const match = normalizeV1(raw);
+          out.push({
+            ...match,
+            category,
+            status: "inprogress",
+            leagueName: LIVE_CATEGORY_LABEL[category] || category,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    }),
+  );
+
+  return out.sort((a, b) => a.date - b.date);
+}
+
 const TAB_BUILDERS: Record<SportTab, () => Promise<SportMatch[]>> = {
+  "en-vivo": buildEnVivo,
   wnba: buildWnba,
   nfl: buildNfl,
   "liga-mx": buildLigaMx,
@@ -384,6 +506,7 @@ const TAB_BUILDERS: Record<SportTab, () => Promise<SportMatch[]>> = {
 };
 
 const TAB_TTL_MS: Record<SportTab, number> = {
+  "en-vivo": 90 * 1000,
   wnba: 10 * 60 * 1000,
   nfl: 10 * 60 * 1000,
   "liga-mx": 15 * 60 * 1000,

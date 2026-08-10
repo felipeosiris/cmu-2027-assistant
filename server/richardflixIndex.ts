@@ -19,7 +19,7 @@ app.get("/", (_req, res) => {
     service: "richardflix-sports",
     routes: [
       "GET /rf/health",
-      "GET /rf/sports/:tab  (wnba|liga-mx|leagues-cup|nfl)",
+      "GET /rf/sports/:tab  (en-vivo|wnba|liga-mx|leagues-cup|nfl)",
       "GET /rf/sports/detail?api=v1|v2&id=&category=",
       "GET /rf/sportsrc/...  (proxy SportSRC con caché)",
     ],
