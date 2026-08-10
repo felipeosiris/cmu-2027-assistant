@@ -376,17 +376,6 @@ async function buildLeaguesCup(): Promise<SportMatch[]> {
   return sortFootball([...v2, ...v1]);
 }
 
-const LIVE_CATEGORIES = [
-  "football",
-  "basketball",
-  "american-football",
-  "baseball",
-  "hockey",
-  "tennis",
-  "mma",
-  "boxing",
-] as const;
-
 const LIVE_CATEGORY_LABEL: Record<string, string> = {
   football: "Fútbol",
   basketball: "Basketball",
@@ -398,26 +387,6 @@ const LIVE_CATEGORY_LABEL: Record<string, string> = {
   boxing: "Box",
 };
 
-/** Ventana desde el tip-off para considerar “en vivo” (por deporte). */
-function liveWindowMs(category: string): number {
-  switch (category) {
-    case "baseball":
-      return 4.5 * 60 * 60 * 1000;
-    case "american-football":
-      return 4 * 60 * 60 * 1000;
-    case "tennis":
-    case "mma":
-    case "boxing":
-      return 5 * 60 * 60 * 1000;
-    case "hockey":
-      return 3.5 * 60 * 60 * 1000;
-    case "basketball":
-      return 3 * 60 * 60 * 1000;
-    default:
-      return 2.5 * 60 * 60 * 1000; // football
-  }
-}
-
 function isJunkLiveListing(m: { id?: string; title?: string }): boolean {
   const id = (m.id || "").toLowerCase();
   const title = (m.title || "").toLowerCase();
@@ -426,73 +395,177 @@ function isJunkLiveListing(m: { id?: string; title?: string }): boolean {
   return false;
 }
 
-/** Todos los deportes que parecen estar en curso ahora mismo. */
-async function buildEnVivo(): Promise<SportMatch[]> {
-  const now = Date.now();
-  const today = isoDateUTC(new Date());
-  const out: SportMatch[] = [];
+// ——— WeStream / streamed (fallback cuando SportSRC no trae embeds) ———
+
+type WeStreamSourceRef = { source: string; id: string };
+type WeStreamMatchRaw = {
+  id?: string;
+  title?: string;
+  category?: string;
+  date?: number;
+  popular?: boolean;
+  poster?: string;
+  teams?: SportMatch["teams"];
+  sources?: WeStreamSourceRef[];
+};
+
+type StreamOption = {
+  id?: string;
+  streamNo?: number;
+  language?: string;
+  hd?: boolean;
+  embedUrl: string;
+  source?: string;
+};
+
+const WESTREAM_MATCHES_LIVE = "https://westream.su/matches/live";
+const WESTREAM_STREAM_BASES = [
+  "https://streamed.pk/api/stream",
+  "https://westream.su/stream",
+] as const;
+
+async function fetchExternalJson<T>(url: string, ttlMs = 90_000): Promise<T | null> {
+  const id = cacheKey(`ext:${url}`);
+  const fresh = getCached(id, { allowStale: false });
+  if (fresh) return fresh.body as T;
+  try {
+    const res = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "User-Agent": "RichardFlixSports/1.0",
+      },
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as T;
+    setCached(id, body, ttlMs);
+    return body;
+  } catch {
+    const stale = getCached(id, { allowStale: true });
+    return stale ? (stale.body as T) : null;
+  }
+}
+
+function westreamConstructEmbed(source: string, id: string, streamNo = 1): string {
+  return `https://westream.su/embed/${encodeURIComponent(source)}/${encodeURIComponent(id)}/${streamNo}`;
+}
+
+async function resolveWeStreamSourceRefs(
+  refs: WeStreamSourceRef[],
+): Promise<StreamOption[]> {
+  const out: StreamOption[] = [];
   const seen = new Set<string>();
 
-  // V2 inprogress (hoy) — sobre todo fútbol
-  try {
-    const { body } = await fetchSportSrc("/v2/", {
-      type: "matches",
-      sport: "football",
-      status: "inprogress",
-      date: today,
-    });
-    const data = body as {
-      data?: Array<{ league?: { name?: string }; matches?: Record<string, unknown>[] }>;
-    };
-    for (const lg of data.data || []) {
-      const leagueName = (lg.league?.name || "Fútbol").trim();
-      for (const m of lg.matches || []) {
-        const id = String(m.id || "");
-        if (!id || seen.has(id)) continue;
-        seen.add(id);
+  for (const ref of refs) {
+    if (!ref?.source || !ref?.id) continue;
+    let gotApi = false;
+    for (const base of WESTREAM_STREAM_BASES) {
+      const url = `${base}/${encodeURIComponent(ref.source)}/${encodeURIComponent(ref.id)}`;
+      const streams = await fetchExternalJson<StreamOption[]>(url, 60_000);
+      if (!Array.isArray(streams) || !streams.length) continue;
+      gotApi = true;
+      for (const s of streams) {
+        const embed = s.embedUrl || westreamConstructEmbed(ref.source, ref.id, s.streamNo || 1);
+        if (!embed || seen.has(embed)) continue;
+        seen.add(embed);
         out.push({
-          ...normalizeV2(m, leagueName),
-          status: "inprogress",
+          ...s,
+          embedUrl: embed,
+          source: s.source || ref.source,
+        });
+      }
+      break;
+    }
+    // Si la API de stream viene vacía, igual probamos el embed WeStream (a veces funciona)
+    if (!gotApi) {
+      const embed = westreamConstructEmbed(ref.source, ref.id, 1);
+      if (seen.add(embed)) {
+        out.push({
+          streamNo: 1,
+          language: "WeStream",
+          hd: true,
+          embedUrl: embed,
+          source: ref.source,
+          id: ref.id,
         });
       }
     }
-  } catch {
-    /* ignore */
   }
+  return out;
+}
 
-  // V1: categorías multi-deporte con ventana por tip-off
-  await Promise.all(
-    LIVE_CATEGORIES.map(async (category) => {
-      try {
-        const { body } = await fetchSportSrc("/", {
-          data: "matches",
+async function findWeStreamMatch(
+  matchId: string,
+  category?: string,
+): Promise<WeStreamMatchRaw | null> {
+  const live = (await fetchExternalJson<WeStreamMatchRaw[]>(WESTREAM_MATCHES_LIVE)) || [];
+  const hitLive = live.find((m) => m.id === matchId);
+  if (hitLive) return hitLive;
+
+  const cat = (category || "football").toLowerCase();
+  const listUrl =
+    cat === "football" || cat === "soccer"
+      ? "https://westream.su/matches/football"
+      : `https://westream.su/matches/${encodeURIComponent(cat)}`;
+  const list = (await fetchExternalJson<WeStreamMatchRaw[]>(listUrl, 120_000)) || [];
+  return list.find((m) => m.id === matchId) || null;
+}
+
+async function enrichSourcesFromWeStream(
+  matchId: string,
+  category: string | undefined,
+  existing: StreamOption[],
+): Promise<StreamOption[]> {
+  if (existing.length) return existing;
+  const ws = await findWeStreamMatch(matchId, category);
+  if (!ws?.sources?.length) return existing;
+  return resolveWeStreamSourceRefs(ws.sources);
+}
+
+/** En vivo real: lista WeStream + solo partidos con embed usable. */
+async function buildEnVivo(): Promise<SportMatch[]> {
+  const live = (await fetchExternalJson<WeStreamMatchRaw[]>(WESTREAM_MATCHES_LIVE, 60_000)) || [];
+  const out: SportMatch[] = [];
+
+  for (const raw of live) {
+    const id = String(raw.id || "");
+    if (!id || isJunkLiveListing(raw)) continue;
+    const category = String(raw.category || "football");
+    const streams = await resolveWeStreamSourceRefs(raw.sources || []);
+    if (!streams.length) continue;
+
+    // Cachear streams del detalle para que el player no vuelva a fallar
+    const detailKey = cacheKey(`detail-enriched:v1:${category}:${id}`);
+    setCached(
+      detailKey,
+      {
+        success: true,
+        data: {
+          id,
+          title: raw.title || id,
           category,
-        });
-        const data = body as { data?: Record<string, unknown>[] };
-        const windowMs = liveWindowMs(category);
-        for (const raw of data.data || []) {
-          if (isJunkLiveListing(raw as { id?: string; title?: string })) continue;
-          const id = String(raw.id || "");
-          if (!id || seen.has(id)) continue;
-          const date = Number(raw.date) || 0;
-          if (!date) continue;
-          // Empezó y aún dentro de la ventana del partido
-          if (date > now + 2 * 60 * 1000) continue; // aún no empieza (margen 2 min)
-          if (now - date > windowMs) continue;
-          seen.add(id);
-          const match = normalizeV1(raw);
-          out.push({
-            ...match,
-            category,
-            status: "inprogress",
-            leagueName: LIVE_CATEGORY_LABEL[category] || category,
-          });
-        }
-      } catch {
-        /* ignore */
-      }
-    }),
-  );
+          date: Number(raw.date) || 0,
+          popular: Boolean(raw.popular),
+          poster: raw.poster,
+          teams: raw.teams,
+          sources: streams,
+        },
+      },
+      90_000,
+    );
+
+    out.push({
+      id,
+      title: String(raw.title || id),
+      category,
+      date: Number(raw.date) || 0,
+      popular: Boolean(raw.popular),
+      poster: typeof raw.poster === "string" ? raw.poster : undefined,
+      teams: raw.teams,
+      api: "v1",
+      status: "inprogress",
+      leagueName: LIVE_CATEGORY_LABEL[category] || category,
+    });
+  }
 
   return out.sort((a, b) => a.date - b.date);
 }
@@ -506,7 +579,7 @@ const TAB_BUILDERS: Record<SportTab, () => Promise<SportMatch[]>> = {
 };
 
 const TAB_TTL_MS: Record<SportTab, number> = {
-  "en-vivo": 90 * 1000,
+  "en-vivo": 60 * 1000,
   wnba: 10 * 60 * 1000,
   nfl: 10 * 60 * 1000,
   "liga-mx": 15 * 60 * 1000,
@@ -531,21 +604,72 @@ async function getTabMatches(tab: SportTab): Promise<{ matches: SportMatch[]; ca
   }
 }
 
+function extractSourcesFromSportSrcBody(body: unknown): StreamOption[] {
+  if (!body || typeof body !== "object") return [];
+  const data = (body as { data?: Record<string, unknown> }).data;
+  if (!data || typeof data !== "object") return [];
+  const sources = (data.sources as StreamOption[]) || [];
+  return sources.filter((s) => Boolean(s?.embedUrl));
+}
+
 async function getDetail(opts: {
   api: "v1" | "v2";
   id: string;
   category?: string;
 }): Promise<{ body: unknown; cache: string }> {
+  const enrichedKey = cacheKey(`detail-enriched:${opts.api}:${opts.category || ""}:${opts.id}`);
+  const enrichedHit = getCached(enrichedKey, { allowStale: false });
+  if (enrichedHit) return { body: enrichedHit.body, cache: "HIT" };
+
   if (opts.api === "v2") {
     const res = await fetchSportSrc("/v2/", { type: "detail", id: opts.id });
-    return { body: res.body, cache: res.cache };
+    const sources = extractSourcesFromSportSrcBody(res.body);
+    if (sources.length) return { body: res.body, cache: res.cache };
+
+    // V2 sin sources → intentar WeStream por id
+    const wsSources = await enrichSourcesFromWeStream(opts.id, opts.category || "football", []);
+    if (!wsSources.length) return { body: res.body, cache: res.cache };
+
+    const data = (res.body as { data?: Record<string, unknown> })?.data || {};
+    const body = {
+      success: true,
+      data: {
+        ...data,
+        sources: wsSources,
+        match_info: (data as { match_info?: unknown }).match_info || data,
+      },
+    };
+    setCached(enrichedKey, body, 90_000);
+    return { body, cache: "MISS" };
   }
+
   const res = await fetchSportSrc("/", {
     data: "detail",
     category: opts.category || "basketball",
     id: opts.id,
   });
-  return { body: res.body, cache: res.cache };
+
+  let sources = extractSourcesFromSportSrcBody(res.body);
+  if (!sources.length) {
+    sources = await enrichSourcesFromWeStream(opts.id, opts.category, []);
+  }
+
+  const rawData =
+    ((res.body as { data?: Record<string, unknown> })?.data as Record<string, unknown>) || {
+      id: opts.id,
+      category: opts.category || "football",
+    };
+
+  const body = {
+    success: true,
+    data: {
+      ...rawData,
+      sources,
+    },
+  };
+  // No cachear vacío mucho tiempo: si hay sources, cachear; si no, TTL corto
+  setCached(enrichedKey, body, sources.length ? 90_000 : 20_000);
+  return { body, cache: sources.length ? "MISS" : res.cache };
 }
 
 function setCors(res: Response): void {
