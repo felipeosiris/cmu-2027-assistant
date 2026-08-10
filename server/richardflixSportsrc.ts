@@ -1,0 +1,532 @@
+/**
+ * RichardFlix Sports API — proxy SportSRC con caché en memoria.
+ * Vive en la misma plataforma que el Asistente CMU 2027 (Render),
+ * pero es un proceso/rutas aparte (/rf/*).
+ */
+import { createHash } from "node:crypto";
+import type { Request, Response, Router } from "express";
+import { Router as createRouter } from "express";
+
+const SPORTSRC_HOST = "https://api.sportsrc.org";
+const DEFAULT_SPORTSRC_KEY = "5824e01ab5b0ecdc91310ecabbd16f32";
+
+function sportSrcKey(): string {
+  return process.env.SPORTSRC_API_KEY?.trim() || DEFAULT_SPORTSRC_KEY;
+}
+
+type CacheEntry = {
+  body: unknown;
+  fetchedAt: number;
+  expiresAt: number;
+};
+
+const memoryCache = new Map<string, CacheEntry>();
+const MAX_CACHE_ENTRIES = 400;
+
+function cacheKey(parts: string): string {
+  return createHash("sha256").update(parts).digest("hex").slice(0, 32);
+}
+
+function pruneCache(): void {
+  if (memoryCache.size <= MAX_CACHE_ENTRIES) return;
+  const now = Date.now();
+  for (const [k, v] of memoryCache) {
+    if (v.expiresAt < now) memoryCache.delete(k);
+  }
+  if (memoryCache.size <= MAX_CACHE_ENTRIES) return;
+  const oldest = [...memoryCache.entries()]
+    .sort((a, b) => a[1].fetchedAt - b[1].fetchedAt)
+    .slice(0, Math.floor(MAX_CACHE_ENTRIES / 4));
+  for (const [k] of oldest) memoryCache.delete(k);
+}
+
+function ttlForQuery(query: Record<string, string>): number {
+  const type = String(query.type ?? "").toLowerCase();
+  const data = String(query.data ?? "").toLowerCase();
+  const status = String(query.status ?? "").toLowerCase();
+  if (type === "detail" || data === "detail") return 20 * 60 * 1000;
+  if (status === "inprogress") return 2 * 60 * 1000;
+  if (type === "matches" || data === "matches") return 12 * 60 * 1000;
+  return 10 * 60 * 1000;
+}
+
+function getCached(key: string, { allowStale }: { allowStale: boolean }): CacheEntry | null {
+  const hit = memoryCache.get(key);
+  if (!hit) return null;
+  if (!allowStale && hit.expiresAt < Date.now()) return null;
+  return hit;
+}
+
+function setCached(key: string, body: unknown, ttlMs: number): void {
+  const now = Date.now();
+  memoryCache.set(key, { body, fetchedAt: now, expiresAt: now + ttlMs });
+  pruneCache();
+}
+
+async function fetchSportSrc(
+  apiPath: string,
+  query: Record<string, string>,
+): Promise<{ status: number; body: unknown; cache: "HIT" | "MISS" | "STALE" }> {
+  const qsObj = { ...query };
+  // No cachear la api_key dentro del hash de query pública
+  delete qsObj.api_key;
+  delete qsObj.key;
+
+  const qs = new URLSearchParams(qsObj).toString();
+  const id = cacheKey(`${apiPath}?${qs}`);
+  const ttl = ttlForQuery(qsObj);
+
+  const fresh = getCached(id, { allowStale: false });
+  if (fresh) return { status: 200, body: fresh.body, cache: "HIT" };
+
+  const url = `${SPORTSRC_HOST}${apiPath}${qs ? `?${qs}` : ""}`;
+  try {
+    const upstream = await fetch(url, {
+      headers: {
+        Accept: "application/json",
+        "X-API-KEY": sportSrcKey(),
+        "User-Agent": "RichardFlixSports/1.0 (+cmu-2027-assistant)",
+      },
+    });
+    const text = await upstream.text();
+    let body: unknown = text;
+    try {
+      body = JSON.parse(text) as unknown;
+    } catch {
+      /* keep text */
+    }
+
+    if (upstream.ok && body && typeof body === "object" && (body as { success?: boolean }).success === true) {
+      setCached(id, body, ttl);
+      return { status: upstream.status, body, cache: "MISS" };
+    }
+
+    if ([403, 429, 404].includes(upstream.status) || upstream.status >= 500) {
+      const stale = getCached(id, { allowStale: true });
+      if (stale) return { status: 200, body: stale.body, cache: "STALE" };
+    }
+
+    return { status: upstream.status, body, cache: "MISS" };
+  } catch (err) {
+    const stale = getCached(id, { allowStale: true });
+    if (stale) return { status: 200, body: stale.body, cache: "STALE" };
+    throw err;
+  }
+}
+
+function queryFromReq(req: Request): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(req.query)) {
+    if (typeof v === "string") out[k] = v;
+    else if (Array.isArray(v) && typeof v[0] === "string") out[k] = v[0];
+  }
+  return out;
+}
+
+// ——— Normalización / filtros (misma lógica que el cliente RichardFlix) ———
+
+export type SportTab = "wnba" | "liga-mx" | "leagues-cup" | "nfl";
+
+type SportMatch = {
+  id: string;
+  title: string;
+  category: string;
+  date: number;
+  poster?: string;
+  popular?: boolean;
+  status?: string;
+  statusDetail?: string;
+  scoreDisplay?: string;
+  leagueName?: string;
+  teams?: {
+    home?: { name: string; badge?: string; code?: string; color?: string };
+    away?: { name: string; badge?: string; code?: string; color?: string };
+  };
+  api: "v1" | "v2";
+  featured?: boolean;
+};
+
+const NFL_TOKENS = [
+  "patriots", "bills", "dolphins", "jets", "ravens", "bengals", "browns", "steelers",
+  "texans", "colts", "jaguars", "titans", "broncos", "chiefs", "raiders", "chargers",
+  "cowboys", "giants", "eagles", "commanders", "bears", "lions", "packers", "vikings",
+  "falcons", "panthers", "saints", "buccaneers", "cardinals", "rams", "49ers", "49-ers",
+  "seahawks",
+];
+
+const CFL_OR_EURO = [
+  "calgary", "winnipeg", "ottawa", "edmonton", "saskatchewan", "hamilton", "argonauts",
+  "stampeders", "blue-bombers", "roughriders", "tiger-cats", "red-blacks", "bc-lions",
+  "berlin", "vienna", "london-warriors", "rhein", "paris-lights", "alpine-rams",
+  "wroclaw", "firenze",
+];
+
+const LIGA_MX_CLUBS = [
+  "america", "américa", "atlas", "atlante", "chivas", "guadalajara", "cruz-azul",
+  "cruz azul", "juarez", "juárez", "leon", "león", "mazatlan", "mazatlán", "monterrey",
+  "necaxa", "pachuca", "puebla", "pumas", "queretaro", "querétaro", "santos", "tijuana",
+  "tigres", "toluca", "san-luis", "san luis",
+];
+
+const MLS_CLUBS = [
+  "atlanta", "austin", "charlotte", "chicago", "cincinnati", "colorado", "columbus",
+  "dallas", "dc-united", "dc united", "houston", "inter-miami", "inter miami",
+  "la-galaxy", "la galaxy", "lafc", "minnesota", "montreal", "nashville", "new-england",
+  "new england", "nycfc", "new-york-city", "new york city", "new-york-red", "red bulls",
+  "orlando", "philadelphia", "portland", "real-salt-lake", "salt lake", "san-diego",
+  "san diego", "san-jose", "san jose", "seattle", "sporting-kansas", "sporting kansas",
+  "st-louis", "st. louis", "toronto", "vancouver",
+];
+
+function blobHasAny(blob: string, tokens: string[]): boolean {
+  return tokens.some((t) => blob.includes(t));
+}
+
+function isWnbaMatch(m: { id?: string; title?: string; category?: string }): boolean {
+  const id = (m.id || "").toLowerCase();
+  const title = (m.title || "").toLowerCase();
+  if (id.includes("nflstreams") || id.includes("schedule")) return false;
+  if (!id.includes("basketball") && m.category !== "basketball") return false;
+  return (
+    /\bw\b/.test(title.replace(/\./g, "")) ||
+    id.includes("-w-") ||
+    /fever|liberty|dream|storm|sky|aces|sparks|wings|sun|lynx|mystics|mercury|tempo/.test(
+      `${id} ${title}`,
+    )
+  );
+}
+
+function isIndianaFever(m: { id?: string; title?: string }): boolean {
+  const s = `${m.id || ""} ${m.title || ""}`.toLowerCase();
+  return s.includes("indiana-fever") || s.includes("indiana fever");
+}
+
+function isNflMatch(m: { id?: string; title?: string }): boolean {
+  const id = (m.id || "").toLowerCase();
+  const title = (m.title || "").toLowerCase();
+  const blob = `${id} ${title}`;
+  if (CFL_OR_EURO.some((t) => blob.includes(t))) return false;
+  if (id.includes("bc-lions") || title.includes("bc lions")) return false;
+  return NFL_TOKENS.some((t) => blob.includes(t));
+}
+
+function isLeaguesCupV1Match(m: { id?: string; title?: string }): boolean {
+  const blob = `${m.id || ""} ${m.title || ""}`.toLowerCase();
+  if (blob.includes("leagues-cup") || blob.includes("leagues cup")) return true;
+  return blobHasAny(blob, LIGA_MX_CLUBS) && blobHasAny(blob, MLS_CLUBS);
+}
+
+function normalizeV1(m: Record<string, unknown>): SportMatch {
+  return {
+    id: String(m.id),
+    title: String(m.title || m.id),
+    category: String(m.category || "basketball"),
+    date: Number(m.date) || 0,
+    poster: typeof m.poster === "string" ? m.poster : undefined,
+    popular: Boolean(m.popular),
+    teams: m.teams as SportMatch["teams"],
+    api: "v1",
+    featured: isIndianaFever(m as { id?: string; title?: string }),
+  };
+}
+
+function normalizeV2(m: Record<string, unknown>, leagueName: string): SportMatch {
+  const score = m.score as { display?: string } | undefined;
+  return {
+    id: String(m.id),
+    title: String(m.title || m.id),
+    category: "football",
+    date: Number(m.timestamp) || Number(m.date) || 0,
+    status: typeof m.status === "string" ? m.status : undefined,
+    statusDetail: typeof m.status_detail === "string" ? m.status_detail : undefined,
+    scoreDisplay: score?.display,
+    leagueName,
+    teams: m.teams as SportMatch["teams"],
+    api: "v2",
+  };
+}
+
+function rankStatus(s?: string) {
+  if (s === "inprogress") return 0;
+  if (s === "scheduled" || !s) return 1;
+  return 2;
+}
+
+function sortFootball(items: SportMatch[]): SportMatch[] {
+  return [...items].sort((a, b) => {
+    const r = rankStatus(a.status) - rankStatus(b.status);
+    if (r !== 0) return r;
+    return a.date - b.date;
+  });
+}
+
+function isoDateUTC(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
+async function fetchV2FootballByLeague(
+  leagueMatch: (name: string) => boolean,
+  daysBack: number,
+  daysForward: number,
+): Promise<SportMatch[]> {
+  const today = new Date();
+  today.setUTCHours(12, 0, 0, 0);
+  const statuses = ["inprogress", "scheduled", "finished"] as const;
+  const out: SportMatch[] = [];
+  const seen = new Set<string>();
+  const dates: string[] = [];
+  for (let i = -daysBack; i <= daysForward; i++) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() + i);
+    dates.push(isoDateUTC(d));
+  }
+
+  const chunkSize = 4;
+  for (let i = 0; i < dates.length; i += chunkSize) {
+    const chunk = dates.slice(i, i + chunkSize);
+    await Promise.all(
+      chunk.flatMap((date) =>
+        statuses.map(async (status) => {
+          try {
+            const { body } = await fetchSportSrc("/v2/", {
+              type: "matches",
+              sport: "football",
+              status,
+              date,
+            });
+            const data = body as {
+              data?: Array<{ league?: { name?: string }; matches?: Record<string, unknown>[] }>;
+            };
+            for (const lg of data.data || []) {
+              const name = (lg.league?.name || "").trim();
+              if (!leagueMatch(name)) continue;
+              for (const m of lg.matches || []) {
+                const id = String(m.id || "");
+                if (!id || seen.has(id)) continue;
+                seen.add(id);
+                out.push(normalizeV2(m, name));
+              }
+            }
+          } catch {
+            /* ignore */
+          }
+        }),
+      ),
+    );
+  }
+  return sortFootball(out);
+}
+
+async function buildWnba(): Promise<SportMatch[]> {
+  const { body } = await fetchSportSrc("/", { data: "matches", category: "basketball" });
+  const data = body as { data?: Record<string, unknown>[] };
+  return (data.data || [])
+    .filter(isWnbaMatch)
+    .map(normalizeV1)
+    .sort((a, b) => {
+      if (a.featured !== b.featured) return a.featured ? -1 : 1;
+      return a.date - b.date;
+    });
+}
+
+async function buildNfl(): Promise<SportMatch[]> {
+  const { body } = await fetchSportSrc("/", {
+    data: "matches",
+    category: "american-football",
+  });
+  const data = body as { data?: Record<string, unknown>[] };
+  return (data.data || [])
+    .filter(isNflMatch)
+    .map((m) => ({ ...normalizeV1(m), category: "american-football" }))
+    .sort((a, b) => a.date - b.date);
+}
+
+async function buildLigaMx(): Promise<SportMatch[]> {
+  return fetchV2FootballByLeague((name) => {
+    const lower = name.toLowerCase();
+    if (!lower.includes("liga mx")) return false;
+    if (lower.includes("women") || lower.includes("u21") || lower.includes("u-21")) return false;
+    return true;
+  }, 5, 14);
+}
+
+async function buildLeaguesCup(): Promise<SportMatch[]> {
+  const [v2, v1res] = await Promise.all([
+    fetchV2FootballByLeague(
+      (name) => /leagues?\s*cup/i.test(name) || /copa\s*de\s*ligas/i.test(name),
+      7,
+      14,
+    ),
+    fetchSportSrc("/", { data: "matches", category: "football" }),
+  ]);
+  const seen = new Set(v2.map((m) => m.id));
+  const v1data = v1res.body as { data?: Record<string, unknown>[] };
+  const v1 = (v1data.data || [])
+    .filter(isLeaguesCupV1Match)
+    .map((m) => {
+      const match = normalizeV1(m);
+      return {
+        ...match,
+        category: "football",
+        leagueName: "Leagues Cup",
+        status: match.date && match.date > Date.now() ? "scheduled" : match.status,
+      };
+    })
+    .filter((m) => !seen.has(m.id));
+  return sortFootball([...v2, ...v1]);
+}
+
+const TAB_BUILDERS: Record<SportTab, () => Promise<SportMatch[]>> = {
+  wnba: buildWnba,
+  nfl: buildNfl,
+  "liga-mx": buildLigaMx,
+  "leagues-cup": buildLeaguesCup,
+};
+
+const TAB_TTL_MS: Record<SportTab, number> = {
+  wnba: 10 * 60 * 1000,
+  nfl: 10 * 60 * 1000,
+  "liga-mx": 15 * 60 * 1000,
+  "leagues-cup": 12 * 60 * 1000,
+};
+
+async function getTabMatches(tab: SportTab): Promise<{ matches: SportMatch[]; cache: string }> {
+  const id = cacheKey(`tab:${tab}`);
+  const ttl = TAB_TTL_MS[tab];
+  const fresh = getCached(id, { allowStale: false });
+  if (fresh) {
+    return { matches: fresh.body as SportMatch[], cache: "HIT" };
+  }
+  try {
+    const matches = await TAB_BUILDERS[tab]();
+    setCached(id, matches, ttl);
+    return { matches, cache: "MISS" };
+  } catch (err) {
+    const stale = getCached(id, { allowStale: true });
+    if (stale) return { matches: stale.body as SportMatch[], cache: "STALE" };
+    throw err;
+  }
+}
+
+async function getDetail(opts: {
+  api: "v1" | "v2";
+  id: string;
+  category?: string;
+}): Promise<{ body: unknown; cache: string }> {
+  if (opts.api === "v2") {
+    const res = await fetchSportSrc("/v2/", { type: "detail", id: opts.id });
+    return { body: res.body, cache: res.cache };
+  }
+  const res = await fetchSportSrc("/", {
+    data: "detail",
+    category: opts.category || "basketball",
+    id: opts.id,
+  });
+  return { body: res.body, cache: res.cache };
+}
+
+function setCors(res: Response): void {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Accept, Content-Type");
+  res.setHeader("Access-Control-Max-Age", "86400");
+}
+
+export function createRichardflixSportsRouter(): Router {
+  const router = createRouter();
+
+  router.use((req, res, next) => {
+    setCors(res);
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+    next();
+  });
+
+  router.get("/health", (_req, res) => {
+    res.json({
+      ok: true,
+      service: "richardflix-sports",
+      cacheEntries: memoryCache.size,
+      hasSportSrcKey: Boolean(sportSrcKey()),
+    });
+  });
+
+  /** Proxy crudo: /rf/sportsrc/?data=matches&category=basketball */
+  router.use("/sportsrc", async (req, res) => {
+    if (req.method === "OPTIONS") {
+      res.status(204).end();
+      return;
+    }
+    if (req.method !== "GET" && req.method !== "HEAD") {
+      res.status(405).json({ success: false, error: "method not allowed" });
+      return;
+    }
+    try {
+      const apiPath = req.path && req.path !== "/" ? req.path : "/";
+      const query = queryFromReq(req);
+      const result = await fetchSportSrc(apiPath, query);
+      res.setHeader("X-SportSrc-Cache", result.cache);
+      res.setHeader("Cache-Control", "public, max-age=60");
+      if (req.method === "HEAD") {
+        res.status(result.status).end();
+        return;
+      }
+      res.status(result.status).json(result.body);
+    } catch (e) {
+      res.status(502).json({
+        success: false,
+        error: e instanceof Error ? e.message : "sportsrc proxy error",
+      });
+    }
+  });
+
+  /** Detalle (antes de :tab para no capturar "detail" como tab) */
+  router.get("/sports/detail", async (req, res) => {
+    const id = String(req.query.id || "");
+    const api = req.query.api === "v2" ? "v2" : "v1";
+    const category = typeof req.query.category === "string" ? req.query.category : undefined;
+    if (!id) {
+      res.status(400).json({ success: false, error: "id requerido" });
+      return;
+    }
+    try {
+      const { body, cache } = await getDetail({ api, id, category });
+      res.setHeader("X-SportSrc-Cache", cache);
+      res.setHeader("Cache-Control", "public, max-age=30");
+      res.json(body);
+    } catch (e) {
+      res.status(502).json({
+        success: false,
+        error: e instanceof Error ? e.message : "detail error",
+      });
+    }
+  });
+
+  /** Agregados cacheados por liga — 1 request cliente → N upstream con caché */
+  router.get("/sports/:tab", async (req, res) => {
+    const tab = req.params.tab as SportTab;
+    if (!TAB_BUILDERS[tab]) {
+      res.status(404).json({
+        success: false,
+        error: "tab desconocido",
+        tabs: Object.keys(TAB_BUILDERS),
+      });
+      return;
+    }
+    try {
+      const { matches, cache } = await getTabMatches(tab);
+      res.setHeader("X-SportSrc-Cache", cache);
+      res.setHeader("Cache-Control", "public, max-age=60");
+      res.json({ success: true, tab, total: matches.length, matches });
+    } catch (e) {
+      res.status(502).json({
+        success: false,
+        error: e instanceof Error ? e.message : "sports tab error",
+      });
+    }
+  });
+
+  return router;
+}

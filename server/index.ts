@@ -35,6 +35,7 @@ import {
 } from "./program.js";
 import { buildPdfBuffer } from "./pdfExport.js";
 import { enrichSpeakersWithPhotos } from "./speakerPhotos.js";
+import { createRichardflixSportsRouter } from "./richardflixSportsrc.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const rootDir = path.resolve(__dirname, "..");
@@ -71,7 +72,11 @@ Reglas:
 - Sé proactivo: clima/ropa, agenda ahora/siguiente, salón de la sesión, patrocinios, ponentes, comer/café, hotel, estacionamiento, farmacia, urgencias, fármacos/ensayos/evidencia, fechas Tijuana 2027.
 - Si hay agenda en vivo: tabla corta de “en curso” y “siguiente” con salón. Di si el reloj es demo.
 - Si preguntan salón (Maito, Quimixto, Caletas, Majahuitas): responde con salón + sesiones ahí.
-- Si preguntan patrocinadores: usa el JSON (Oro/Plata/Bronce/actividades). Astellas/Boston/TENA/Silanes tienen actividades ligadas.
+- Si preguntan patrocinadores: usa el JSON (Oro/Plata/Bronce/actividades). Astellas/Boston/TENA/Silanes/Liomont/AstraZeneca tienen actividades ligadas (algunas marcadas DEMO).
+- Productos demo: Urizia (ficha en Productos/), ZeroTip Boston (120 cm referencia; trivia 120/150/200).
+- Stands demo: Area-comercial-stands.md (Astellas A-12, Boston B-08, Liomont C-04, AZ A-14; bahías R-01/R-02/R-03 robots).
+- Si preguntan resumen AstraZeneca: usa Resumen-AstraZeneca-DEMO.md.
+- Si preguntan LHRH sin bicalutamida: usa Nota-LHRH-sin-bicalutamida.md + disclaimer.
 - Si hay lugares en el JSON en vivo, resume en tabla corta; la UI mostrará mini mapas solos.
 - Si hay datos médicos en vivo: tablas + enlaces + disclaimer una vez; no inventes dosis.
 - Personas/fotos: si hay path de foto, \`![Nombre](/api/vault/...)\`. Si el JSON trae photoHit con confidence≥0.9, USA esa foto (proactivo). Si no hay foto segura, dilo en una frase; no inventes plantillas [FOTO 3x4].
@@ -122,6 +127,9 @@ async function getOrCreateSession(sessionId?: string): Promise<Session> {
 const app = express();
 app.use(cors({ origin: true }));
 app.use(express.json({ limit: "1mb" }));
+
+/** RichardFlix Deportes: proxy SportSRC + caché (también en servicio aparte) */
+app.use("/rf", createRichardflixSportsRouter());
 
 app.get("/api/health", (_req, res) => {
   const managedCloud =
@@ -429,13 +437,15 @@ app.post("/api/chat", async (req, res) => {
   };
 
   try {
-    const live = await buildLiveContext(prompt, VAULT_CWD);
+    // Paralelizar: sesión Agent + contexto en vivo (sin atajos falsos)
+    const livePromise = buildLiveContext(prompt, VAULT_CWD);
+    const sessionPromise = getOrCreateSession(sessionId);
+    const [live, session] = await Promise.all([livePromise, sessionPromise]);
     send("context", { hasLive: Boolean(live.markdown) });
     if (live.places.length) {
       const mapPlaces = live.places
         .filter((p) => p.category !== "sede")
         .slice(0, 8);
-      // Solo emitir mapas si hay lugares (o sede cuando la pregunta es de ubicación)
       if (mapPlaces.length || live.venue) {
         send("places", {
           places: mapPlaces,
@@ -444,14 +454,16 @@ app.post("/api/chat", async (req, res) => {
       }
     }
 
-    const session = await getOrCreateSession(sessionId);
     send("session", { sessionId: session.id });
 
     const fullPrompt = `${SYSTEM_HINT}
 
 ---
-DATOS EN VIVO (úsalos si aplican; no inventes fuera de esto):
+DATOS EN VIVO (prioridad: úsalos; no inventes fuera de esto):
 ${live.markdown || "(sin datos en vivo)"}
+
+---
+Velocidad: si los DATOS EN VIVO ya responden la pregunta, contesta de inmediato con veredicto + tabla. Solo busca en el filesystem si falta un dato concreto (máx. 2 lecturas). No listes directorios enteros.
 
 ---
 Pregunta del usuario:
@@ -523,7 +535,7 @@ const skipListen =
 if (!skipListen) {
   app.use(express.static(clientDist));
   app.get("*", (req, res, next) => {
-    if (req.path.startsWith("/api")) return next();
+    if (req.path.startsWith("/api") || req.path.startsWith("/rf")) return next();
     res.sendFile(path.join(clientDist, "index.html"), (err) => {
       if (err) next();
     });
@@ -537,6 +549,17 @@ if (!skipListen) {
     console.log(`Places             → ${process.env.GOOGLE_PLACES_API_KEY ? "ok" : "fallback FanPass"}`);
     console.log(`TTS                → ${TTS_VOICE}`);
     console.log(`Static UI          → ${fs.existsSync(clientDist) ? clientDist : "missing (run npm run build)"}`);
+    // Precalienta una sesión Agent para la 1ª pregunta del demo
+    if (API_KEY) {
+      void getOrCreateSession()
+        .then((s) => console.log(`Agent warmup     → session ${s.id.slice(0, 8)}…`))
+        .catch((e) =>
+          console.warn(
+            "Agent warmup fail →",
+            e instanceof Error ? e.message : e
+          )
+        );
+    }
   });
 }
 

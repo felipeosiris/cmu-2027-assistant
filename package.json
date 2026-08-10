@@ -9,7 +9,9 @@
     "dev:server": "tsx watch server/index.ts",
     "dev:client": "vite --config client/vite.config.ts",
     "build": "vite build --config client/vite.config.ts",
-    "start": "NODE_ENV=production tsx server/index.ts"
+    "start": "NODE_ENV=production tsx server/index.ts",
+    "start:richardflix-sports": "tsx server/richardflixIndex.ts",
+    "dev:richardflix-sports": "tsx watch server/richardflixIndex.ts"
   },
   "dependencies": {
     "@cursor/sdk": "^1.0.23",

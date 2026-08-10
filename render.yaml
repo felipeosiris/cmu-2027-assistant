@@ -26,3 +26,22 @@ services:
         value: es-MX-DaliaNeural
       - key: CMU_AGENT_RUNTIME
         value: cloud
+
+  # Backend aparte RichardFlix Deportes (proxy SportSRC + caché)
+  - type: web
+    name: richardflix-sports
+    runtime: node
+    plan: free
+    region: oregon
+    buildCommand: npm ci --include=dev
+    startCommand: npx tsx server/richardflixIndex.ts
+    healthCheckPath: /rf/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: "10000"
+      - key: SPORTSRC_API_KEY
+        sync: false
