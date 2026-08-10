@@ -445,8 +445,51 @@ async function fetchExternalJson<T>(url: string, ttlMs = 90_000): Promise<T | nu
   }
 }
 
-function westreamConstructEmbed(source: string, id: string, streamNo = 1): string {
-  return `https://westream.su/embed/${encodeURIComponent(source)}/${encodeURIComponent(id)}/${streamNo}`;
+function scoreEmbed(s: StreamOption): number {
+  const url = (s.embedUrl || "").toLowerCase();
+  const lang = (s.language || "").toLowerCase();
+  let n = 0;
+  if (url.includes("embed.streamapi.cc")) n += 50;
+  if (url.includes("embed.st/embed/")) n += 40;
+  if (url.includes("westream.su/embed")) n += 5; // wrappers frágiles
+  if (url.includes("mutstreams")) n -= 100;
+  if (lang.includes("spanish") || lang.includes("español") || lang.startsWith("es")) n += 25;
+  if (s.hd) n += 5;
+  if ((s.source || "").toLowerCase() === "admin") n += 8;
+  if ((s.source || "").toLowerCase() === "delta") n += 4;
+  return n;
+}
+
+function mergeStreamOptions(...lists: StreamOption[][]): StreamOption[] {
+  const seen = new Set<string>();
+  const out: StreamOption[] = [];
+  for (const list of lists) {
+    for (const s of list) {
+      const embed = (s.embedUrl || "").trim();
+      if (!embed || seen.has(embed)) continue;
+      if (/mutstreams\.pk/i.test(embed)) continue;
+      seen.add(embed);
+      out.push(s);
+    }
+  }
+  return out.sort((a, b) => scoreEmbed(b) - scoreEmbed(a));
+}
+
+async function sportSrcSourcesForMatch(
+  matchId: string,
+  category: string,
+): Promise<StreamOption[]> {
+  if (!matchId || /^\d+$/.test(matchId)) return [];
+  try {
+    const res = await fetchSportSrc("/", {
+      data: "detail",
+      category,
+      id: matchId,
+    });
+    return extractSourcesFromSportSrcBody(res.body);
+  } catch {
+    return [];
+  }
 }
 
 async function resolveWeStreamSourceRefs(
@@ -457,15 +500,16 @@ async function resolveWeStreamSourceRefs(
 
   for (const ref of refs) {
     if (!ref?.source || !ref?.id) continue;
-    let gotApi = false;
     for (const base of WESTREAM_STREAM_BASES) {
       const url = `${base}/${encodeURIComponent(ref.source)}/${encodeURIComponent(ref.id)}`;
       const streams = await fetchExternalJson<StreamOption[]>(url, 60_000);
       if (!Array.isArray(streams) || !streams.length) continue;
-      gotApi = true;
       for (const s of streams) {
-        const embed = s.embedUrl || westreamConstructEmbed(ref.source, ref.id, s.streamNo || 1);
+        const embed = (s.embedUrl || "").trim();
+        // Solo embeds reales de la API — los construidos (westream wrapper → mutstreams)
+        // a menudo responden 500 / HLS manifest error.
         if (!embed || seen.has(embed)) continue;
+        if (/mutstreams\.pk/i.test(embed)) continue;
         seen.add(embed);
         out.push({
           ...s,
@@ -474,20 +518,6 @@ async function resolveWeStreamSourceRefs(
         });
       }
       break;
-    }
-    // Si la API de stream viene vacía, igual probamos el embed WeStream (a veces funciona)
-    if (!gotApi) {
-      const embed = westreamConstructEmbed(ref.source, ref.id, 1);
-      if (seen.add(embed)) {
-        out.push({
-          streamNo: 1,
-          language: "WeStream",
-          hd: true,
-          embedUrl: embed,
-          source: ref.source,
-          id: ref.id,
-        });
-      }
     }
   }
   return out;
@@ -521,7 +551,7 @@ async function enrichSourcesFromWeStream(
   return resolveWeStreamSourceRefs(ws.sources);
 }
 
-/** En vivo real: lista WeStream + solo partidos con embed usable. */
+/** En vivo real: WeStream live + solo si hay embeds API reales (SportSRC y/o stream API). */
 async function buildEnVivo(): Promise<SportMatch[]> {
   const live = (await fetchExternalJson<WeStreamMatchRaw[]>(WESTREAM_MATCHES_LIVE, 60_000)) || [];
   const out: SportMatch[] = [];
@@ -530,10 +560,13 @@ async function buildEnVivo(): Promise<SportMatch[]> {
     const id = String(raw.id || "");
     if (!id || isJunkLiveListing(raw)) continue;
     const category = String(raw.category || "football");
-    const streams = await resolveWeStreamSourceRefs(raw.sources || []);
+    const [wsStreams, srcStreams] = await Promise.all([
+      resolveWeStreamSourceRefs(raw.sources || []),
+      sportSrcSourcesForMatch(id, category),
+    ]);
+    const streams = mergeStreamOptions(srcStreams, wsStreams);
     if (!streams.length) continue;
 
-    // Cachear streams del detalle para que el player no vuelva a fallar
     const detailKey = cacheKey(`detail-enriched:v1:${category}:${id}`);
     setCached(
       detailKey,
@@ -623,19 +656,17 @@ async function getDetail(opts: {
 
   if (opts.api === "v2") {
     const res = await fetchSportSrc("/v2/", { type: "detail", id: opts.id });
-    const sources = extractSourcesFromSportSrcBody(res.body);
-    if (sources.length) return { body: res.body, cache: res.cache };
-
-    // V2 sin sources → intentar WeStream por id
+    const srcSources = extractSourcesFromSportSrcBody(res.body);
     const wsSources = await enrichSourcesFromWeStream(opts.id, opts.category || "football", []);
-    if (!wsSources.length) return { body: res.body, cache: res.cache };
+    const sources = mergeStreamOptions(srcSources, wsSources);
+    if (!sources.length) return { body: res.body, cache: res.cache };
 
     const data = (res.body as { data?: Record<string, unknown> })?.data || {};
     const body = {
       success: true,
       data: {
         ...data,
-        sources: wsSources,
+        sources,
         match_info: (data as { match_info?: unknown }).match_info || data,
       },
     };
@@ -649,10 +680,9 @@ async function getDetail(opts: {
     id: opts.id,
   });
 
-  let sources = extractSourcesFromSportSrcBody(res.body);
-  if (!sources.length) {
-    sources = await enrichSourcesFromWeStream(opts.id, opts.category, []);
-  }
+  const srcSources = extractSourcesFromSportSrcBody(res.body);
+  const wsSources = await enrichSourcesFromWeStream(opts.id, opts.category, []);
+  const sources = mergeStreamOptions(srcSources, wsSources);
 
   const rawData =
     ((res.body as { data?: Record<string, unknown> })?.data as Record<string, unknown>) || {
@@ -667,7 +697,6 @@ async function getDetail(opts: {
       sources,
     },
   };
-  // No cachear vacío mucho tiempo: si hay sources, cachear; si no, TTL corto
   setCached(enrichedKey, body, sources.length ? 90_000 : 20_000);
   return { body, cache: sources.length ? "MISS" : res.cache };
 }
