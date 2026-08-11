@@ -201,6 +201,28 @@ function isIndianaFever(m: { id?: string; title?: string }): boolean {
   return s.includes("indiana-fever") || s.includes("indiana fever");
 }
 
+/** Clave de cruce ignorando " W", orden de equipos y vs/at. */
+function matchupKey(
+  title: string,
+  teams?: SportMatch["teams"],
+): string {
+  const raw =
+    teams?.home?.name && teams?.away?.name
+      ? `${teams.home.name} ${teams.away.name}`
+      : title;
+  return raw
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/\bw\b/g, " ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .split(/\s+/)
+    .filter((w) => w && w !== "vs" && w !== "at" && w !== "w")
+    .sort()
+    .join(" ");
+}
+
 function isNflMatch(m: { id?: string; title?: string }): boolean {
   const id = (m.id || "").toLowerCase();
   const title = (m.title || "").toLowerCase();
@@ -320,13 +342,50 @@ async function fetchV2FootballByLeague(
 async function buildWnba(): Promise<SportMatch[]> {
   const { body } = await fetchSportSrc("/", { data: "matches", category: "basketball" });
   const data = body as { data?: Record<string, unknown>[] };
-  return (data.data || [])
-    .filter(isWnbaMatch)
-    .map(normalizeV1)
-    .sort((a, b) => {
-      if (a.featured !== b.featured) return a.featured ? -1 : 1;
-      return a.date - b.date;
-    });
+  const items = (data.data || []).filter(isWnbaMatch).map(normalizeV1);
+
+  // Dedupe Dream W / Dream (mismo partido, distinto id): quedarnos con el que tenga stream
+  const groups = new Map<string, SportMatch[]>();
+  for (const m of items) {
+    const key = matchupKey(m.title, m.teams);
+    const list = groups.get(key) || [];
+    list.push(m);
+    groups.set(key, list);
+  }
+
+  const deduped: SportMatch[] = [];
+  for (const group of groups.values()) {
+    if (group.length === 1) {
+      deduped.push(group[0]!);
+      continue;
+    }
+    // Preferir id con fuentes admin/delta en WeStream o SportSRC
+    let best = group[0]!;
+    let bestScore = -1;
+    for (const m of group) {
+      let score = 0;
+      if (m.featured) score += 5;
+      // ids tipo …-w-…-basketball-495xxx suelen ser echo vacío
+      if (/-w-.*-w-basketball-/i.test(m.id)) score -= 3;
+      const ws = await findWeStreamMatch(m.id, "basketball");
+      const refs = ws?.sources || [];
+      if (refs.some((r) => /^(admin|delta)$/i.test(r.source))) score += 20;
+      const src = await sportSrcSourcesForMatch(m.id, "basketball");
+      if (src.length) score += 30 + src.length;
+      const wsStreams = await resolveWeStreamSourceRefs(refs);
+      if (wsStreams.length) score += 25 + wsStreams.length;
+      if (score > bestScore) {
+        bestScore = score;
+        best = m;
+      }
+    }
+    deduped.push(best);
+  }
+
+  return deduped.sort((a, b) => {
+    if (a.featured !== b.featured) return a.featured ? -1 : 1;
+    return a.date - b.date;
+  });
 }
 
 async function buildNfl(): Promise<SportMatch[]> {
@@ -540,15 +599,69 @@ async function findWeStreamMatch(
   return list.find((m) => m.id === matchId) || null;
 }
 
+async function listWeStreamCandidates(
+  category?: string,
+): Promise<WeStreamMatchRaw[]> {
+  const cat = (category || "football").toLowerCase();
+  const listUrl =
+    cat === "football" || cat === "soccer"
+      ? "https://westream.su/matches/football"
+      : `https://westream.su/matches/${encodeURIComponent(cat)}`;
+  const [live, list] = await Promise.all([
+    fetchExternalJson<WeStreamMatchRaw[]>(WESTREAM_MATCHES_LIVE, 60_000),
+    fetchExternalJson<WeStreamMatchRaw[]>(listUrl, 120_000),
+  ]);
+  const byId = new Map<string, WeStreamMatchRaw>();
+  for (const m of [...(live || []), ...(list || [])]) {
+    if (m?.id) byId.set(m.id, m);
+  }
+  return [...byId.values()];
+}
+
+/** Misma pelea, otro id (ej. Dream W …-495016 vs Dream …-2449325). */
+async function findSiblingStreamSources(
+  matchId: string,
+  category: string | undefined,
+  title?: string,
+  teams?: SportMatch["teams"],
+): Promise<StreamOption[]> {
+  const key = matchupKey(title || matchId, teams);
+  if (!key) return [];
+
+  const candidates = await listWeStreamCandidates(category);
+  const siblings = candidates.filter((m) => {
+    if (!m.id || m.id === matchId) return false;
+    return matchupKey(String(m.title || m.id), m.teams) === key;
+  });
+
+  const out: StreamOption[] = [];
+  for (const sib of siblings) {
+    const ws = await resolveWeStreamSourceRefs(sib.sources || []);
+    const src = await sportSrcSourcesForMatch(sib.id!, category || "basketball");
+    out.push(...mergeStreamOptions(src, ws));
+  }
+  return mergeStreamOptions(out);
+}
+
 async function enrichSourcesFromWeStream(
   matchId: string,
   category: string | undefined,
   existing: StreamOption[],
+  meta?: { title?: string; teams?: SportMatch["teams"] },
 ): Promise<StreamOption[]> {
-  if (existing.length) return existing;
   const ws = await findWeStreamMatch(matchId, category);
-  if (!ws?.sources?.length) return existing;
-  return resolveWeStreamSourceRefs(ws.sources);
+  const fromSelf = ws?.sources?.length
+    ? await resolveWeStreamSourceRefs(ws.sources)
+    : [];
+  const merged = mergeStreamOptions(existing, fromSelf);
+  if (merged.length) return merged;
+
+  return findSiblingStreamSources(
+    matchId,
+    category,
+    meta?.title || ws?.title,
+    meta?.teams || ws?.teams,
+  );
 }
 
 /** En vivo real: WeStream live + solo si hay embeds API reales (SportSRC y/o stream API). */
@@ -652,16 +765,29 @@ async function getDetail(opts: {
 }): Promise<{ body: unknown; cache: string }> {
   const enrichedKey = cacheKey(`detail-enriched:${opts.api}:${opts.category || ""}:${opts.id}`);
   const enrichedHit = getCached(enrichedKey, { allowStale: false });
-  if (enrichedHit) return { body: enrichedHit.body, cache: "HIT" };
+  if (enrichedHit) {
+    const cachedSources = extractSourcesFromSportSrcBody(enrichedHit.body);
+    if (cachedSources.length) return { body: enrichedHit.body, cache: "HIT" };
+  }
 
   if (opts.api === "v2") {
     const res = await fetchSportSrc("/v2/", { type: "detail", id: opts.id });
+    const data = (res.body as { data?: Record<string, unknown> })?.data || {};
+    const info = ((data as { match_info?: Record<string, unknown> }).match_info ||
+      data) as Record<string, unknown>;
     const srcSources = extractSourcesFromSportSrcBody(res.body);
-    const wsSources = await enrichSourcesFromWeStream(opts.id, opts.category || "football", []);
+    const wsSources = await enrichSourcesFromWeStream(
+      opts.id,
+      opts.category || "football",
+      [],
+      {
+        title: typeof info.title === "string" ? info.title : undefined,
+        teams: info.teams as SportMatch["teams"],
+      },
+    );
     const sources = mergeStreamOptions(srcSources, wsSources);
     if (!sources.length) return { body: res.body, cache: res.cache };
 
-    const data = (res.body as { data?: Record<string, unknown> })?.data || {};
     const body = {
       success: true,
       data: {
@@ -680,15 +806,18 @@ async function getDetail(opts: {
     id: opts.id,
   });
 
-  const srcSources = extractSourcesFromSportSrcBody(res.body);
-  const wsSources = await enrichSourcesFromWeStream(opts.id, opts.category, []);
-  const sources = mergeStreamOptions(srcSources, wsSources);
-
   const rawData =
     ((res.body as { data?: Record<string, unknown> })?.data as Record<string, unknown>) || {
       id: opts.id,
       category: opts.category || "football",
     };
+
+  const srcSources = extractSourcesFromSportSrcBody(res.body);
+  const wsSources = await enrichSourcesFromWeStream(opts.id, opts.category, [], {
+    title: typeof rawData.title === "string" ? rawData.title : undefined,
+    teams: rawData.teams as SportMatch["teams"],
+  });
+  const sources = mergeStreamOptions(srcSources, wsSources);
 
   const body = {
     success: true,
@@ -697,7 +826,7 @@ async function getDetail(opts: {
       sources,
     },
   };
-  setCached(enrichedKey, body, sources.length ? 90_000 : 20_000);
+  if (sources.length) setCached(enrichedKey, body, 90_000);
   return { body, cache: sources.length ? "MISS" : res.cache };
 }
 
