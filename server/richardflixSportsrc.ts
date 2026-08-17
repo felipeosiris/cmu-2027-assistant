@@ -590,14 +590,16 @@ function scoreEmbed(s: StreamOption): number {
   const url = (s.embedUrl || "").toLowerCase();
   const lang = (s.language || "").toLowerCase();
   let n = 0;
-  if (url.includes("embed.streamapi.cc")) n += 50;
-  if (url.includes("embed.st/embed/")) n += 40;
-  if (url.includes("westream.su/embed")) n += 5; // wrappers frágiles
+  // streamapi es el que sí reproduce en RichardFlix (WNBA). embed.st/Clappr
+  // suele tirar hls:networkError_manifestLoadError.
+  if (url.includes("embed.streamapi.cc")) n += 80;
+  if (url.includes("embed.st/embed/")) n += 8;
+  if (url.includes("westream.su/embed")) n += 4;
   if (url.includes("mutstreams")) n -= 100;
   if (lang.includes("spanish") || lang.includes("español") || lang.startsWith("es")) n += 25;
   if (s.hd) n += 5;
   if ((s.source || "").toLowerCase() === "admin") n += 8;
-  if ((s.source || "").toLowerCase() === "delta") n += 4;
+  if ((s.source || "").toLowerCase() === "delta") n += 2;
   return n;
 }
 
@@ -621,16 +623,58 @@ async function sportSrcSourcesForMatch(
   category: string,
 ): Promise<StreamOption[]> {
   if (!matchId || /^\d+$/.test(matchId)) return [];
-  try {
-    const res = await fetchSportSrc("/", {
-      data: "detail",
-      category,
-      id: matchId,
-    });
-    return extractSourcesFromSportSrcBody(res.body);
-  } catch {
-    return [];
+  const cats = Array.from(
+    new Set(
+      [category, "football", "american-football", "basketball"].filter(Boolean),
+    ),
+  );
+  for (const cat of cats) {
+    try {
+      const res = await fetchSportSrc("/", {
+        data: "detail",
+        category: cat,
+        id: matchId,
+      });
+      const sources = extractSourcesFromSportSrcBody(res.body);
+      if (sources.length) return sources;
+    } catch {
+      /* siguiente categoría */
+    }
   }
+  return [];
+}
+
+async function sportSrcSourcesByMatchup(
+  title: string | undefined,
+  teams: SportMatch["teams"] | undefined,
+  category?: string,
+): Promise<StreamOption[]> {
+  const key = matchupKey(title || "", teams);
+  if (!key) return [];
+  const cats =
+    category === "american-football"
+      ? ["american-football"]
+      : category === "basketball"
+        ? ["basketball"]
+        : ["football", "american-football"];
+  const out: StreamOption[] = [];
+  for (const cat of cats) {
+    try {
+      const { body } = await fetchSportSrc("/", {
+        data: "matches",
+        category: cat,
+      });
+      const items = (body as { data?: Record<string, unknown>[] }).data || [];
+      for (const raw of items) {
+        const m = normalizeV1(raw);
+        if (matchupKey(m.title, m.teams) !== key) continue;
+        out.push(...(await sportSrcSourcesForMatch(m.id, cat)));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  return mergeStreamOptions(out);
 }
 
 async function resolveWeStreamSourceRefs(
@@ -638,17 +682,30 @@ async function resolveWeStreamSourceRefs(
 ): Promise<StreamOption[]> {
   const out: StreamOption[] = [];
   const seen = new Set<string>();
+  const extra: WeStreamSourceRef[] = [...refs];
 
   for (const ref of refs) {
+    if (!ref?.id) continue;
+    // El id de WeStream a veces ES el id SportSRC (ppv-packers-...)
+    extra.push({ source: "admin", id: ref.id });
+  }
+
+  for (const ref of extra) {
     if (!ref?.source || !ref?.id) continue;
+    const srcFromSport = await sportSrcSourcesForMatch(ref.id, "football");
+    for (const s of srcFromSport) {
+      const embed = (s.embedUrl || "").trim();
+      if (!embed || seen.has(embed) || /mutstreams\.pk/i.test(embed)) continue;
+      seen.add(embed);
+      out.push(s);
+    }
+
     for (const base of WESTREAM_STREAM_BASES) {
       const url = `${base}/${encodeURIComponent(ref.source)}/${encodeURIComponent(ref.id)}`;
       const streams = await fetchExternalJson<StreamOption[]>(url, 60_000);
       if (!Array.isArray(streams) || !streams.length) continue;
       for (const s of streams) {
         const embed = (s.embedUrl || "").trim();
-        // Solo embeds reales de la API — los construidos (westream wrapper → mutstreams)
-        // a menudo responden 500 / HLS manifest error.
         if (!embed || seen.has(embed)) continue;
         if (/mutstreams\.pk/i.test(embed)) continue;
         seen.add(embed);
@@ -661,7 +718,7 @@ async function resolveWeStreamSourceRefs(
       break;
     }
   }
-  return out;
+  return mergeStreamOptions(out);
 }
 
 async function findWeStreamMatch(
@@ -735,15 +792,19 @@ async function enrichSourcesFromWeStream(
   const fromSelf = ws?.sources?.length
     ? await resolveWeStreamSourceRefs(ws.sources)
     : [];
-  const merged = mergeStreamOptions(existing, fromSelf);
-  if (merged.length) return merged;
-
-  return findSiblingStreamSources(
+  const siblings = await findSiblingStreamSources(
     matchId,
     category,
     meta?.title || ws?.title,
     meta?.teams || ws?.teams,
   );
+  const byMatchup = await sportSrcSourcesByMatchup(
+    meta?.title || ws?.title,
+    meta?.teams || ws?.teams,
+    category,
+  );
+  const fromId = await sportSrcSourcesForMatch(matchId, category || "football");
+  return mergeStreamOptions(existing, fromId, fromSelf, siblings, byMatchup);
 }
 
 /** En vivo real: WeStream live + solo si hay embeds API reales (SportSRC y/o stream API). */
@@ -755,11 +816,12 @@ async function buildEnVivo(): Promise<SportMatch[]> {
     const id = String(raw.id || "");
     if (!id || isJunkLiveListing(raw)) continue;
     const category = String(raw.category || "football");
-    const [wsStreams, srcStreams] = await Promise.all([
+    const [wsStreams, srcStreams, byMatchup] = await Promise.all([
       resolveWeStreamSourceRefs(raw.sources || []),
       sportSrcSourcesForMatch(id, category),
+      sportSrcSourcesByMatchup(raw.title, raw.teams, category),
     ]);
-    const streams = mergeStreamOptions(srcStreams, wsStreams);
+    const streams = mergeStreamOptions(srcStreams, wsStreams, byMatchup);
     if (!streams.length) continue;
 
     const detailKey = cacheKey(`detail-enriched:v1:${category}:${id}`);
