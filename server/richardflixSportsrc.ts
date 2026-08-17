@@ -291,7 +291,7 @@ function matchupKey(
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .split(/\s+/)
-    .filter((w) => w && !MATCHUP_STOP.has(w))
+    .filter((w) => w && !MATCHUP_STOP.has(w) && !/^\d+$/.test(w))
     .sort()
     .join(" ");
 }
@@ -1027,7 +1027,10 @@ async function getDetail(opts: {
       opts.category || "football",
       [],
       {
-        title: typeof info.title === "string" ? info.title : undefined,
+        title:
+          typeof info.title === "string" && info.title.trim()
+            ? info.title
+            : opts.id,
         teams: info.teams as SportMatch["teams"],
       },
     );
@@ -1060,7 +1063,10 @@ async function getDetail(opts: {
 
   const srcSources = extractSourcesFromSportSrcBody(res.body);
   const wsSources = await enrichSourcesFromWeStream(opts.id, opts.category, [], {
-    title: typeof rawData.title === "string" ? rawData.title : undefined,
+    title:
+      typeof rawData.title === "string" && rawData.title.trim()
+        ? rawData.title
+        : opts.id,
     teams: rawData.teams as SportMatch["teams"],
   });
   const sources = mergeStreamOptions(srcSources, wsSources);
