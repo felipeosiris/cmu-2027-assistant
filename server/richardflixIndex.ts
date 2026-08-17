@@ -21,6 +21,9 @@ app.get("/", (_req, res) => {
       "GET /rf/health",
       "GET /rf/sports/:tab  (en-vivo|nba|wnba|liga-mx|leagues-cup|nfl)",
       "GET /rf/sports/detail?api=v1|v2&id=&category=",
+      "GET /rf/tv/countries",
+      "GET /rf/tv/channels?country=mx&kind=tv|radio",
+      "GET /rf/tv/channel?country=mx&kind=tv&id=",
       "GET /rf/sportsrc/...  (proxy SportSRC con caché)",
     ],
   });
