@@ -125,7 +125,7 @@ function queryFromReq(req: Request): Record<string, string> {
 
 // ——— Normalización / filtros (misma lógica que el cliente RichardFlix) ———
 
-export type SportTab = "en-vivo" | "wnba" | "liga-mx" | "leagues-cup" | "nfl";
+export type SportTab = "en-vivo" | "nba" | "wnba" | "liga-mx" | "leagues-cup" | "nfl";
 
 type SportMatch = {
   id: string;
@@ -190,10 +190,60 @@ function isWnbaMatch(m: { id?: string; title?: string; category?: string }): boo
   return (
     /\bw\b/.test(title.replace(/\./g, "")) ||
     id.includes("-w-") ||
-    /fever|liberty|dream|storm|sky|aces|sparks|wings|sun|lynx|mystics|mercury|tempo/.test(
+    /fever|liberty|dream|storm|sky|aces|sparks|wings|sun|lynx|mystics|mercury|tempo|valkyries/.test(
       `${id} ${title}`,
     )
   );
+}
+
+const NBA_TOKENS = [
+  "lakers",
+  "celtics",
+  "warriors",
+  "knicks",
+  "heat",
+  "nuggets",
+  "thunder",
+  "spurs",
+  "suns",
+  "clippers",
+  "bucks",
+  "76ers",
+  "sixers",
+  "mavericks",
+  "grizzlies",
+  "pelicans",
+  "hawks",
+  "hornets",
+  "pistons",
+  "pacers",
+  "raptors",
+  "wizards",
+  "magic",
+  "cavaliers",
+  "cavs",
+  "rockets",
+  "timberwolves",
+  "trail-blazers",
+  "trail blazers",
+  "blazers",
+  "jazz",
+  "kings",
+  "bulls",
+  "nets",
+];
+
+function isNbaMatch(m: { id?: string; title?: string; category?: string }): boolean {
+  const id = (m.id || "").toLowerCase();
+  const title = (m.title || "").toLowerCase();
+  if (id.includes("nflstreams") || id.includes("schedule")) return false;
+  if (isWnbaMatch(m)) return false;
+  const cat = (m.category || "").toLowerCase();
+  if (cat && cat !== "basketball" && cat !== "nba" && !id.includes("basketball")) {
+    return false;
+  }
+  const blob = `${id} ${title}`;
+  return NBA_TOKENS.some((t) => blob.includes(t));
 }
 
 function isIndianaFever(m: { id?: string; title?: string }): boolean {
@@ -339,12 +389,36 @@ async function fetchV2FootballByLeague(
   return sortFootball(out);
 }
 
-async function buildWnba(): Promise<SportMatch[]> {
+async function basketballPool(): Promise<SportMatch[]> {
   const { body } = await fetchSportSrc("/", { data: "matches", category: "basketball" });
-  const data = body as { data?: Record<string, unknown>[] };
-  const items = (data.data || []).filter(isWnbaMatch).map(normalizeV1);
+  const v1 = ((body as { data?: Record<string, unknown>[] }).data || []).map(normalizeV1);
+  const seen = new Set(v1.map((m) => m.id));
+  const extra: SportMatch[] = [];
+  try {
+    const ws = await listWeStreamCandidates("basketball");
+    for (const m of ws) {
+      const id = String(m.id || "");
+      if (!id || seen.has(id) || isJunkLiveListing(m)) continue;
+      extra.push({
+        id,
+        title: String(m.title || id),
+        category: String(m.category || "basketball"),
+        date: Number(m.date) || 0,
+        popular: Boolean(m.popular),
+        poster: typeof m.poster === "string" ? m.poster : undefined,
+        teams: m.teams,
+        api: "v1",
+      });
+      seen.add(id);
+    }
+  } catch {
+    /* WeStream opcional */
+  }
+  return [...v1, ...extra];
+}
 
-  // Dedupe Dream W / Dream (mismo partido, distinto id): quedarnos con el que tenga stream
+/** Dedupe mismo cruce con ids gemelos; preferir el que tenga stream. */
+async function dedupeBasketballMatches(items: SportMatch[]): Promise<SportMatch[]> {
   const groups = new Map<string, SportMatch[]>();
   for (const m of items) {
     const key = matchupKey(m.title, m.teams);
@@ -359,13 +433,11 @@ async function buildWnba(): Promise<SportMatch[]> {
       deduped.push(group[0]!);
       continue;
     }
-    // Preferir id con fuentes admin/delta en WeStream o SportSRC
     let best = group[0]!;
     let bestScore = -1;
     for (const m of group) {
       let score = 0;
       if (m.featured) score += 5;
-      // ids tipo …-w-…-basketball-495xxx suelen ser echo vacío
       if (/-w-.*-w-basketball-/i.test(m.id)) score -= 3;
       const ws = await findWeStreamMatch(m.id, "basketball");
       const refs = ws?.sources || [];
@@ -386,6 +458,16 @@ async function buildWnba(): Promise<SportMatch[]> {
     if (a.featured !== b.featured) return a.featured ? -1 : 1;
     return a.date - b.date;
   });
+}
+
+async function buildWnba(): Promise<SportMatch[]> {
+  const items = (await basketballPool()).filter(isWnbaMatch);
+  return dedupeBasketballMatches(items);
+}
+
+async function buildNba(): Promise<SportMatch[]> {
+  const items = (await basketballPool()).filter(isNbaMatch);
+  return dedupeBasketballMatches(items);
 }
 
 async function buildNfl(): Promise<SportMatch[]> {
@@ -718,6 +800,7 @@ async function buildEnVivo(): Promise<SportMatch[]> {
 
 const TAB_BUILDERS: Record<SportTab, () => Promise<SportMatch[]>> = {
   "en-vivo": buildEnVivo,
+  nba: buildNba,
   wnba: buildWnba,
   nfl: buildNfl,
   "liga-mx": buildLigaMx,
@@ -726,6 +809,7 @@ const TAB_BUILDERS: Record<SportTab, () => Promise<SportMatch[]>> = {
 
 const TAB_TTL_MS: Record<SportTab, number> = {
   "en-vivo": 60 * 1000,
+  nba: 10 * 60 * 1000,
   wnba: 10 * 60 * 1000,
   nfl: 10 * 60 * 1000,
   "liga-mx": 15 * 60 * 1000,
