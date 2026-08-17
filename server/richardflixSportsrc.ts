@@ -101,7 +101,13 @@ async function fetchSportSrc(
       return { status: upstream.status, body, cache: "MISS" };
     }
 
-    if ([403, 429, 404].includes(upstream.status) || upstream.status >= 500) {
+    // 404 de detail/id incorrecto es estable (WeStream vs V2); evita repetir el round-trip.
+    if (upstream.status === 404) {
+      setCached(id, body ?? { success: false }, Math.min(ttl, 5 * 60 * 1000));
+      return { status: 404, body, cache: "MISS" };
+    }
+
+    if ([403, 429].includes(upstream.status) || upstream.status >= 500) {
       const stale = getCached(id, { allowStale: true });
       if (stale) return { status: 200, body: stale.body, cache: "STALE" };
     }
@@ -251,7 +257,24 @@ function isIndianaFever(m: { id?: string; title?: string }): boolean {
   return s.includes("indiana-fever") || s.includes("indiana fever");
 }
 
-/** Clave de cruce ignorando " W", orden de equipos y vs/at. */
+const MATCHUP_STOP = new Set([
+  "vs",
+  "at",
+  "w",
+  "fc",
+  "cf",
+  "sc",
+  "afc",
+  "cfc",
+  "club",
+  "de",
+  "la",
+  "el",
+  "the",
+  "ii",
+]);
+
+/** Clave de cruce ignorando " W"/FC/CF, orden de equipos y vs/at. */
 function matchupKey(
   title: string,
   teams?: SportMatch["teams"],
@@ -268,7 +291,7 @@ function matchupKey(
     .replace(/[^a-z0-9]+/g, " ")
     .trim()
     .split(/\s+/)
-    .filter((w) => w && w !== "vs" && w !== "at" && w !== "w")
+    .filter((w) => w && !MATCHUP_STOP.has(w))
     .sort()
     .join(" ");
 }
@@ -593,6 +616,7 @@ function scoreEmbed(s: StreamOption): number {
   // streamapi es el que sí reproduce en RichardFlix (WNBA). embed.st/Clappr
   // suele tirar hls:networkError_manifestLoadError.
   if (url.includes("embed.streamapi.cc")) n += 80;
+  if (url.includes("football77.org")) n += 35;
   if (url.includes("embed.st/embed/")) n += 8;
   if (url.includes("westream.su/embed")) n += 4;
   if (url.includes("mutstreams")) n -= 100;
@@ -618,11 +642,24 @@ function mergeStreamOptions(...lists: StreamOption[][]): StreamOption[] {
   return out.sort((a, b) => scoreEmbed(b) - scoreEmbed(a));
 }
 
+async function sportSrcV2SourcesForMatch(matchId: string): Promise<StreamOption[]> {
+  if (!matchId || /^\d+$/.test(matchId)) return [];
+  try {
+    const res = await fetchSportSrc("/v2/", { type: "detail", id: matchId });
+    return extractSourcesFromSportSrcBody(res.body);
+  } catch {
+    return [];
+  }
+}
+
 async function sportSrcSourcesForMatch(
   matchId: string,
   category: string,
 ): Promise<StreamOption[]> {
   if (!matchId || /^\d+$/.test(matchId)) return [];
+  const v2 = await sportSrcV2SourcesForMatch(matchId);
+  if (v2.length) return v2;
+
   const cats = Array.from(
     new Set(
       [category, "football", "american-football", "basketball"].filter(Boolean),
@@ -642,6 +679,48 @@ async function sportSrcSourcesForMatch(
     }
   }
   return [];
+}
+
+async function listSportSrcV2FootballRecent(): Promise<SportMatch[]> {
+  const today = new Date();
+  today.setUTCHours(12, 0, 0, 0);
+  const dates: string[] = [];
+  for (let i = -1; i <= 1; i++) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() + i);
+    dates.push(isoDateUTC(d));
+  }
+  const out: SportMatch[] = [];
+  const seen = new Set<string>();
+  await Promise.all(
+    dates.flatMap((date) =>
+      (["inprogress", "scheduled", "finished"] as const).map(async (status) => {
+        try {
+          const { body } = await fetchSportSrc("/v2/", {
+            type: "matches",
+            sport: "football",
+            status,
+            date,
+          });
+          const data = body as {
+            data?: Array<{ league?: { name?: string }; matches?: Record<string, unknown>[] }>;
+          };
+          for (const lg of data.data || []) {
+            const name = (lg.league?.name || "").trim();
+            for (const raw of lg.matches || []) {
+              const id = String(raw.id || "");
+              if (!id || seen.has(id)) continue;
+              seen.add(id);
+              out.push(normalizeV2(raw, name));
+            }
+          }
+        } catch {
+          /* ignore */
+        }
+      }),
+    ),
+  );
+  return out;
 }
 
 async function sportSrcSourcesByMatchup(
@@ -669,6 +748,17 @@ async function sportSrcSourcesByMatchup(
         const m = normalizeV1(raw);
         if (matchupKey(m.title, m.teams) !== key) continue;
         out.push(...(await sportSrcSourcesForMatch(m.id, cat)));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+  if (category !== "american-football" && category !== "basketball") {
+    try {
+      const v2 = await listSportSrcV2FootballRecent();
+      for (const m of v2) {
+        if (matchupKey(m.title, m.teams) !== key) continue;
+        out.push(...(await sportSrcV2SourcesForMatch(m.id)));
       }
     } catch {
       /* ignore */
@@ -824,7 +914,17 @@ async function buildEnVivo(): Promise<SportMatch[]> {
     const streams = mergeStreamOptions(srcStreams, wsStreams, byMatchup);
     if (!streams.length) continue;
 
-    const detailKey = cacheKey(`detail-enriched:v1:${category}:${id}`);
+    const startedAt = Number(raw.date) || 0;
+    const ageMs = startedAt ? Date.now() - startedAt : 0;
+    const hasStable = streams.some((s) => {
+      const url = (s.embedUrl || "").toLowerCase();
+      return url.includes("embed.streamapi.cc") || url.includes("football77.org");
+    });
+    // Feeds WeStream "live" a veces quedan colgados (MLS de anoche con Clappr muerto).
+    if (ageMs > 18 * 60 * 60 * 1000) continue;
+    if (ageMs > 4.5 * 60 * 60 * 1000 && !hasStable) continue;
+
+    const detailKey = cacheKey(`detail-enriched:v3:${category}:${id}`);
     setCached(
       detailKey,
       {
@@ -909,7 +1009,7 @@ async function getDetail(opts: {
   id: string;
   category?: string;
 }): Promise<{ body: unknown; cache: string }> {
-  const enrichedKey = cacheKey(`detail-enriched:${opts.api}:${opts.category || ""}:${opts.id}`);
+  const enrichedKey = cacheKey(`detail-enriched:v3:${opts.api}:${opts.category || ""}:${opts.id}`);
   const enrichedHit = getCached(enrichedKey, { allowStale: false });
   if (enrichedHit) {
     const cachedSources = extractSourcesFromSportSrcBody(enrichedHit.body);
