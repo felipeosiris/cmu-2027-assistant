@@ -7,6 +7,7 @@ import { createHash } from "node:crypto";
 import type { Request, Response, Router } from "express";
 import { Router as createRouter } from "express";
 import { mountRichardflixLiveTv } from "./richardflixLiveTv.js";
+import { mountRichardflixStream } from "./richardflixStream.js";
 
 const SPORTSRC_HOST = "https://api.sportsrc.org";
 const DEFAULT_SPORTSRC_KEY = "5824e01ab5b0ecdc91310ecabbd16f32";
@@ -1112,6 +1113,7 @@ export function createRichardflixSportsRouter(): Router {
   });
 
   mountRichardflixLiveTv(router);
+  mountRichardflixStream(router);
 
   /** Proxy crudo: /rf/sportsrc/?data=matches&category=basketball */
   router.use("/sportsrc", async (req, res) => {

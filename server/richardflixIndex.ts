@@ -25,6 +25,9 @@ app.get("/", (_req, res) => {
       "GET /rf/tv/channels?country=mx&kind=tv|radio",
       "GET /rf/tv/channel?country=mx&kind=tv&id=",
       "GET /rf/sportsrc/...  (proxy SportSRC con caché)",
+      "GET /rf/stream/play?type=movie|tv&tmdb=&lang=latino&hostIndex=0",
+      "GET /rf/stream/sources?type=movie|tv&tmdb=&lang=latino",
+      "GET /rf/stream/proxy?u=&r=  (proxy HLS/mp4)",
     ],
   });
 });
