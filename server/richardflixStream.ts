@@ -60,6 +60,41 @@ function b64urlDecode(s: string): string {
   return Buffer.from(s, "base64url").toString("utf8");
 }
 
+/** Best-effort: pedir sin subs / max calidad en URLs de embed. */
+function tuneEmbedUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const set = (k: string, v: string) => {
+      if (!u.searchParams.has(k)) u.searchParams.set(k, v);
+    };
+    set("sub", "0");
+    set("subtitle", "0");
+    set("subtitles", "0");
+    set("captions", "0");
+    set("ds_lang", "off");
+    set("quality", "max");
+    set("q", "max");
+    return u.href;
+  } catch {
+    return url;
+  }
+}
+
+/** Quita pistas SUBTITLES del master m3u8 cuando el proxy lo pide. */
+function stripSubtitleRenditions(body: string): string {
+  const lines = body.split("\n");
+  const kept: string[] = [];
+  for (const line of lines) {
+    if (/TYPE=SUBTITLES/i.test(line)) continue;
+    if (line.startsWith("#EXT-X-STREAM-INF")) {
+      kept.push(line.replace(/SUBTITLES="[^"]*"\s*,?\s*/gi, ""));
+      continue;
+    }
+    kept.push(line);
+  }
+  return kept.join("\n");
+}
+
 function embedPagePath(opts: {
   type: StreamMediaType;
   tmdbId: number;
@@ -240,7 +275,7 @@ async function validateStream(url: string, referer: string): Promise<boolean> {
 
 function proxyUrlFor(target: string, referer: string, req: Request): string {
   const base = `${req.protocol}://${req.get("host")}/rf/stream/proxy`;
-  return `${base}?u=${b64urlEncode(target)}&r=${b64urlEncode(referer)}`;
+  return `${base}?u=${b64urlEncode(target)}&r=${b64urlEncode(referer)}&nosubs=1`;
 }
 
 function packResolved(
@@ -318,20 +353,21 @@ export async function resolvePlayableStream(
   for (const [host, embedUrl] of slice) {
     if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
     if (host === "direct" || host === "remux") continue;
-    return { mode: "embed", url: embedUrl, referer, host, lang: opts.lang };
+    return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
   }
 
   const first = allHosts[0];
   if (first) {
     const [host, embedUrl] = first;
-    return { mode: "embed", url: embedUrl, referer, host, lang: opts.lang };
+    return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
   }
   return null;
 }
 
-function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Request): string {
+function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Request, stripSubs: boolean): string {
   const base = new URL(targetUrl);
-  return body
+  const normalized = stripSubs ? stripSubtitleRenditions(body) : body;
+  return normalized
     .split("\n")
     .map((line) => {
       const trimmed = line.trim();
@@ -441,7 +477,7 @@ export function mountRichardflixStream(router: Router): void {
 
       if (ct.includes("mpegurl") || ct.includes("m3u8") || buf.slice(0, 8).toString("utf8").startsWith("#EXTM3U")) {
         const text = buf.toString("utf8");
-        const rewritten = rewriteM3u8(text, u, r, req);
+        const rewritten = rewriteM3u8(text, u, r, req, req.query.nosubs !== "0");
         res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
         res.setHeader("Access-Control-Allow-Origin", "*");
         res.setHeader("Cache-Control", "no-cache");
