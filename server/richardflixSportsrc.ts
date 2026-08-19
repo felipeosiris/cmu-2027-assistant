@@ -89,6 +89,7 @@ async function fetchSportSrc(
         "X-API-KEY": sportSrcKey(),
         "User-Agent": "RichardFlixSports/1.0 (+cmu-2027-assistant)",
       },
+      signal: AbortSignal.timeout(8_000),
     });
     const text = await upstream.text();
     let body: unknown = text;
@@ -551,6 +552,7 @@ const LIVE_CATEGORY_LABEL: Record<string, string> = {
   tennis: "Tenis",
   mma: "MMA",
   boxing: "Box",
+  other: "Eventos",
 };
 
 function isJunkLiveListing(m: { id?: string; title?: string }): boolean {
@@ -600,6 +602,7 @@ async function fetchExternalJson<T>(url: string, ttlMs = 90_000): Promise<T | nu
         Accept: "application/json",
         "User-Agent": "RichardFlixSports/1.0",
       },
+      signal: AbortSignal.timeout(8_000),
     });
     if (!res.ok) return null;
     const body = (await res.json()) as T;
@@ -772,45 +775,41 @@ async function sportSrcSourcesByMatchup(
 async function resolveWeStreamSourceRefs(
   refs: WeStreamSourceRef[],
 ): Promise<StreamOption[]> {
-  const out: StreamOption[] = [];
-  const seen = new Set<string>();
-  const extra: WeStreamSourceRef[] = [...refs];
-
+  const unique = new Map<string, WeStreamSourceRef>();
   for (const ref of refs) {
-    if (!ref?.id) continue;
-    // El id de WeStream a veces ES el id SportSRC (ppv-packers-...)
-    extra.push({ source: "admin", id: ref.id });
-  }
-
-  for (const ref of extra) {
     if (!ref?.source || !ref?.id) continue;
-    const srcFromSport = await sportSrcSourcesForMatch(ref.id, "football");
-    for (const s of srcFromSport) {
-      const embed = (s.embedUrl || "").trim();
-      if (!embed || seen.has(embed) || /mutstreams\.pk/i.test(embed)) continue;
-      seen.add(embed);
-      out.push(s);
-    }
-
-    for (const base of WESTREAM_STREAM_BASES) {
-      const url = `${base}/${encodeURIComponent(ref.source)}/${encodeURIComponent(ref.id)}`;
-      const streams = await fetchExternalJson<StreamOption[]>(url, 60_000);
-      if (!Array.isArray(streams) || !streams.length) continue;
-      for (const s of streams) {
-        const embed = (s.embedUrl || "").trim();
-        if (!embed || seen.has(embed)) continue;
-        if (/mutstreams\.pk/i.test(embed)) continue;
-        seen.add(embed);
-        out.push({
-          ...s,
-          embedUrl: embed,
-          source: s.source || ref.source,
-        });
-      }
-      break;
-    }
+    unique.set(`${ref.source}:${ref.id}`, ref);
   }
-  return mergeStreamOptions(out);
+
+  const lists = await Promise.all(
+    [...unique.values()].map(async (ref) => {
+      const out: StreamOption[] = [];
+      const seen = new Set<string>();
+      const results = await Promise.all(
+        WESTREAM_STREAM_BASES.map((base) =>
+          fetchExternalJson<StreamOption[]>(
+            `${base}/${encodeURIComponent(ref.source)}/${encodeURIComponent(ref.id)}`,
+            60_000,
+          ),
+        ),
+      );
+      for (const streams of results) {
+        if (!Array.isArray(streams)) continue;
+        for (const s of streams) {
+          const embed = (s.embedUrl || "").trim();
+          if (!embed || seen.has(embed) || /mutstreams\.pk/i.test(embed)) continue;
+          seen.add(embed);
+          out.push({
+            ...s,
+            embedUrl: embed,
+            source: s.source || ref.source,
+          });
+        }
+      }
+      return out;
+    }),
+  );
+  return mergeStreamOptions(...lists);
 }
 
 async function findWeStreamMatch(
@@ -884,6 +883,10 @@ async function enrichSourcesFromWeStream(
   const fromSelf = ws?.sources?.length
     ? await resolveWeStreamSourceRefs(ws.sources)
     : [];
+  const fromId = await sportSrcSourcesForMatch(matchId, category || "football");
+  const ready = mergeStreamOptions(existing, fromId, fromSelf);
+  if (ready.length) return ready;
+
   const siblings = await findSiblingStreamSources(
     matchId,
     category,
@@ -895,11 +898,10 @@ async function enrichSourcesFromWeStream(
     meta?.teams || ws?.teams,
     category,
   );
-  const fromId = await sportSrcSourcesForMatch(matchId, category || "football");
-  return mergeStreamOptions(existing, fromId, fromSelf, siblings, byMatchup);
+  return mergeStreamOptions(ready, siblings, byMatchup);
 }
 
-/** En vivo real: WeStream live + solo si hay embeds API reales (SportSRC y/o stream API). */
+/** Listado rápido: WeStream live. Los embeds se resuelven en /sports/detail. */
 async function buildEnVivo(): Promise<SportMatch[]> {
   const live = (await fetchExternalJson<WeStreamMatchRaw[]>(WESTREAM_MATCHES_LIVE, 60_000)) || [];
   const out: SportMatch[] = [];
@@ -907,43 +909,18 @@ async function buildEnVivo(): Promise<SportMatch[]> {
   for (const raw of live) {
     const id = String(raw.id || "");
     if (!id || isJunkLiveListing(raw)) continue;
-    const category = String(raw.category || "football");
-    const [wsStreams, srcStreams, byMatchup] = await Promise.all([
-      resolveWeStreamSourceRefs(raw.sources || []),
-      sportSrcSourcesForMatch(id, category),
-      sportSrcSourcesByMatchup(raw.title, raw.teams, category),
-    ]);
-    const streams = mergeStreamOptions(srcStreams, wsStreams, byMatchup);
-    if (!streams.length) continue;
+    const refs = raw.sources || [];
+    if (!refs.length) continue;
 
+    const category = String(raw.category || "football");
     const startedAt = Number(raw.date) || 0;
     const ageMs = startedAt ? Date.now() - startedAt : 0;
-    const hasStable = streams.some((s) => {
-      const url = (s.embedUrl || "").toLowerCase();
-      return url.includes("embed.streamapi.cc") || url.includes("football77.org");
-    });
-    // Feeds WeStream "live" a veces quedan colgados (MLS de anoche con Clappr muerto).
     if (ageMs > 18 * 60 * 60 * 1000) continue;
-    if (ageMs > 4.5 * 60 * 60 * 1000 && !hasStable) continue;
-
-    const detailKey = cacheKey(`detail-enriched:v3:${category}:${id}`);
-    setCached(
-      detailKey,
-      {
-        success: true,
-        data: {
-          id,
-          title: raw.title || id,
-          category,
-          date: Number(raw.date) || 0,
-          popular: Boolean(raw.popular),
-          poster: raw.poster,
-          teams: raw.teams,
-          sources: streams,
-        },
-      },
-      90_000,
-    );
+    const maxAge =
+      category === "baseball" || category === "other" || category === "tennis"
+        ? 8 * 60 * 60 * 1000
+        : 5 * 60 * 60 * 1000;
+    if (ageMs > maxAge) continue;
 
     out.push({
       id,
@@ -980,6 +957,8 @@ const TAB_TTL_MS: Record<SportTab, number> = {
   "leagues-cup": 12 * 60 * 1000,
 };
 
+const tabInflight = new Map<SportTab, Promise<SportMatch[]>>();
+
 async function getTabMatches(tab: SportTab): Promise<{ matches: SportMatch[]; cache: string }> {
   const id = cacheKey(`tab:${tab}`);
   const ttl = TAB_TTL_MS[tab];
@@ -988,7 +967,14 @@ async function getTabMatches(tab: SportTab): Promise<{ matches: SportMatch[]; ca
     return { matches: fresh.body as SportMatch[], cache: "HIT" };
   }
   try {
-    const matches = await TAB_BUILDERS[tab]();
+    let pending = tabInflight.get(tab);
+    if (!pending) {
+      pending = TAB_BUILDERS[tab]().finally(() => {
+        tabInflight.delete(tab);
+      });
+      tabInflight.set(tab, pending);
+    }
+    const matches = await pending;
     setCached(id, matches, ttl);
     return { matches, cache: "MISS" };
   } catch (err) {
