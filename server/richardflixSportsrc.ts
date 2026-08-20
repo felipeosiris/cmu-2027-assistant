@@ -618,12 +618,11 @@ function scoreEmbed(s: StreamOption): number {
   const url = (s.embedUrl || "").toLowerCase();
   const lang = (s.language || "").toLowerCase();
   let n = 0;
-  // streamapi es el que sí reproduce en RichardFlix (WNBA). embed.st/Clappr
-  // suele tirar hls:networkError_manifestLoadError.
-  if (url.includes("embed.streamapi.cc")) n += 80;
-  if (url.includes("football77.org")) n += 35;
-  if (url.includes("embed.st/embed/")) n += 8;
-  if (url.includes("westream.su/embed")) n += 4;
+  // embed.st directo: menos iframes anidados. streamapi suele ser wrapper al mismo feed.
+  if (url.includes("embed.st/embed/")) n += 90;
+  if (url.includes("football77.org")) n += 70;
+  if (url.includes("westream.su/embed")) n += 55;
+  if (url.includes("embed.streamapi.cc")) n += 25;
   if (url.includes("mutstreams")) n -= 100;
   if (lang.includes("spanish") || lang.includes("español") || lang.startsWith("es")) n += 25;
   if (s.hd) n += 5;
