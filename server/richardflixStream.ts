@@ -309,17 +309,47 @@ async function resolveHostStream(
   embedUrl: string,
   referer: string,
 ): Promise<{ streamUrl: string | null; kind: "hls" | "mp4" | "embed" }> {
-  if (host === "direct") {
-    if (/\.m3u8/i.test(embedUrl)) return { streamUrl: embedUrl, kind: "hls" };
-    if (/\.mp4/i.test(embedUrl)) return { streamUrl: embedUrl, kind: "mp4" };
+  const unwrapNested = (raw: string): { streamUrl: string; kind: "hls" | "mp4" } | null => {
+    try {
+      const u = new URL(raw);
+      const nested = u.searchParams.get("url");
+      if (nested) {
+        const deep = unwrapNested(nested);
+        if (deep) return deep;
+        if (/\.m3u8/i.test(nested)) return { streamUrl: nested, kind: "hls" };
+        if (/\.mp4/i.test(nested)) return { streamUrl: nested, kind: "mp4" };
+      }
+    } catch {
+      /* ignore */
+    }
+    if (/\.m3u8/i.test(raw)) return { streamUrl: raw, kind: "hls" };
+    if (/\.mp4/i.test(raw)) return { streamUrl: raw, kind: "mp4" };
+    return null;
+  };
+
+  if (host === "direct" || host === "remux") {
+    const unwrapped = unwrapNested(embedUrl);
+    if (unwrapped) return unwrapped;
+
+    // Seguir el wrapper UnlimPlay / remux para sacar el m3u8 real
+    try {
+      const { text, finalUrl } = await fetchText(embedUrl, referer);
+      const fromHtml = extractM3u8(text) ?? extractMp4(text);
+      if (fromHtml) {
+        return {
+          streamUrl: fromHtml,
+          kind: fromHtml.includes(".m3u8") ? "hls" : "mp4",
+        };
+      }
+      const again = unwrapNested(finalUrl);
+      if (again) return again;
+    } catch {
+      /* fallthrough */
+    }
     return { streamUrl: null, kind: "embed" };
   }
 
-  if (host === "remux") {
-    return { streamUrl: null, kind: "embed" };
-  }
-
-  if (host === "netu" || host === "netu2" || /waaw\.to/i.test(embedUrl)) {
+  if (host === "netu" || host === "netu2" || host === "netu 2" || /waaw\.to/i.test(embedUrl)) {
     const m3u8 = await resolveWaaw(embedUrl, referer);
     return { streamUrl: m3u8, kind: m3u8 ? "hls" : "embed" };
   }
@@ -425,14 +455,11 @@ export async function resolvePlayableStream(
   for (const [host, embedUrl] of slice) {
     if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
     if (host === "direct" || host === "remux") continue;
+    // Nunca devolver la página UnlimPlay (anuncios); solo hosts externos
+    if (/unlimplay\.com\/(f\/)?(play\/)?embed/i.test(embedUrl)) continue;
     return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
   }
 
-  const first = allHosts[0];
-  if (first) {
-    const [host, embedUrl] = first;
-    return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
-  }
   return null;
 }
 
