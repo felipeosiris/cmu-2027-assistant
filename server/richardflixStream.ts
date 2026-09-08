@@ -423,7 +423,7 @@ async function readPrefixBytes(
     } catch {
       /* ignore */
     }
-    ac.abort();
+    // No abortar el AbortController aquí: puede emitir 'error' no manejado en undici.
     return { status: res.status, buf: Buffer.concat(chunks).subarray(0, maxBytes) };
   } catch {
     return null;
@@ -766,6 +766,10 @@ export function mountRichardflixStream(router: Router): void {
       return;
     }
 
+    const ac = new AbortController();
+    const onClose = () => ac.abort();
+    req.on("close", onClose);
+
     try {
       const upstream = await fetch(u, {
         headers: {
@@ -775,6 +779,7 @@ export function mountRichardflixStream(router: Router): void {
           Origin: new URL(r).origin,
         },
         redirect: "follow",
+        signal: ac.signal,
       });
 
       if (!upstream.ok) {
@@ -810,10 +815,25 @@ export function mountRichardflixStream(router: Router): void {
         res.status(502).send("empty upstream");
         return;
       }
+
       const { Readable } = await import("node:stream");
-      Readable.fromWeb(upstream.body as import("node:stream/web").ReadableStream).pipe(res);
+      const nodeStream = Readable.fromWeb(upstream.body as import("node:stream/web").ReadableStream);
+      // Sin esto, un "other side closed" del upstream tumba todo el proceso (exit 1).
+      nodeStream.on("error", () => {
+        if (!res.headersSent) res.status(502).end("upstream closed");
+        else res.destroy();
+      });
+      res.on("error", () => {
+        nodeStream.destroy();
+      });
+      nodeStream.pipe(res);
     } catch (e) {
-      res.status(502).send(e instanceof Error ? e.message : "proxy error");
+      if (ac.signal.aborted) return;
+      if (!res.headersSent) {
+        res.status(502).send(e instanceof Error ? e.message : "proxy error");
+      }
+    } finally {
+      req.off("close", onClose);
     }
   });
 }

@@ -60,6 +60,30 @@ type Session = {
 
 const sessions = new Map<string, Session>();
 
+/** Evita que un socket de proxy/fetch tumbe todo el servicio (Render exit 1). */
+process.on("uncaughtException", (err) => {
+  const msg = err instanceof Error ? err.message : String(err);
+  const code = err && typeof err === "object" && "code" in err ? String((err as { code?: unknown }).code) : "";
+  const cause = err instanceof Error && err.cause && typeof err.cause === "object" && "code" in err.cause
+    ? String((err.cause as { code?: unknown }).code)
+    : "";
+  if (
+    msg === "terminated" ||
+    code === "UND_ERR_SOCKET" ||
+    cause === "UND_ERR_SOCKET" ||
+    msg.includes("other side closed")
+  ) {
+    console.error("Swallowing undici/socket error (proxy):", msg);
+    return;
+  }
+  console.error("uncaughtException:", err);
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("unhandledRejection:", reason);
+});
+
 const SYSTEM_HINT = `
 Eres el Asistente CMU 2027: guía inteligente y PROACTIVO del Plan Estratégico CMU, del 50° Congreso (Puerto Vallarta, 2–6 jun 2026) y del próximo 51° Congreso Internacional de Urología (Tijuana, BC, 11–15 abr 2027).
 
