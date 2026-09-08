@@ -129,6 +129,75 @@ async function fetchText(url: string, referer: string): Promise<{ text: string; 
   return { text, finalUrl: res.url, status: res.status };
 }
 
+function extractJsonObjectAfter(text: string, marker: string): string | null {
+  let from = 0;
+  while (from < text.length) {
+    const idx = text.indexOf(marker, from);
+    if (idx < 0) return null;
+    const after = idx + marker.length;
+    // Saltar espacios hasta el '{'
+    let start = after;
+    while (start < text.length && /\s/.test(text[start])) start++;
+    if (text[start] !== "{") {
+      from = after;
+      continue;
+    }
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let i = start; i < text.length; i++) {
+      const ch = text[i];
+      if (inStr) {
+        if (esc) {
+          esc = false;
+          continue;
+        }
+        if (ch === "\\") {
+          esc = true;
+          continue;
+        }
+        if (ch === '"') inStr = false;
+        continue;
+      }
+      if (ch === '"') {
+        inStr = true;
+        continue;
+      }
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        if (depth === 0) return text.slice(start, i + 1);
+      }
+    }
+    from = after;
+  }
+  return null;
+}
+
+function parseEmbedsMap(text: string): EmbedsMap | null {
+  const candidates = [
+    extractJsonObjectAfter(text, "finalizePlayer("),
+    extractJsonObjectAfter(text, "const EMBEDS = "),
+    extractJsonObjectAfter(text, "let EMBEDS = "),
+    extractJsonObjectAfter(text, "var EMBEDS = "),
+  ].filter(Boolean) as string[];
+
+  for (const raw of candidates) {
+    try {
+      const data = JSON.parse(raw) as EmbedsMap;
+      if (data && typeof data === "object" && !Array.isArray(data)) {
+        const langs = Object.keys(data);
+        if (langs.some((k) => data[k] && typeof data[k] === "object")) {
+          return data;
+        }
+      }
+    } catch {
+      /* try next */
+    }
+  }
+  return null;
+}
+
 export async function fetchUnlimEmbeds(opts: {
   type: StreamMediaType;
   tmdbId: number;
@@ -139,21 +208,24 @@ export async function fetchUnlimEmbeds(opts: {
   const cached = cacheGet<EmbedsMap>(key);
   if (cached) return cached;
 
-  const path = embedPagePath(opts);
   const referer = `${UNLIM}/`;
-  const { text, status } = await fetchText(`${UNLIM}${path}`, referer);
-  if (status >= 400) return null;
+  const paths = [
+    embedPagePath(opts),
+    opts.type === "movie"
+      ? `/play/embed/movie/${opts.tmdbId}`
+      : `/play/embed/tv/${opts.tmdbId}/${opts.season ?? 1}/${opts.episode ?? 1}`,
+  ];
 
-  const m = text.match(/const EMBEDS = (\{.*?\});/s);
-  if (!m) return null;
-
-  try {
-    const data = JSON.parse(m[1]) as EmbedsMap;
-    cacheSet(key, data, 20 * 60 * 1000);
-    return data;
-  } catch {
-    return null;
+  for (const path of paths) {
+    const { text, status } = await fetchText(`${UNLIM}${path}`, referer);
+    if (status >= 400) continue;
+    const data = parseEmbedsMap(text);
+    if (data) {
+      cacheSet(key, data, 20 * 60 * 1000);
+      return data;
+    }
   }
+  return null;
 }
 
 function extractM3u8(html: string): string | null {
