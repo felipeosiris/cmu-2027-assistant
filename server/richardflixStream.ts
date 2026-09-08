@@ -413,8 +413,9 @@ async function readPrefixBytes(
     while (total < maxBytes) {
       const { done, value } = await reader.read();
       if (done || !value) break;
-      chunks.push(Buffer.from(value));
-      total += value.byteLength;
+      const need = maxBytes - total;
+      chunks.push(Buffer.from(value.subarray(0, need)));
+      total += Math.min(value.byteLength, need);
       if (total >= maxBytes) break;
     }
     try {
