@@ -244,6 +244,20 @@ async function proxyYtm(req: Request, res: Response): Promise<void> {
 
   try {
     const suffix = String(req.path || "/").replace(/^\/+/, "");
+    // Nunca proxificar estas rutas a YouTube (devolverían HTML basura)
+    if (
+      suffix === "audio" ||
+      suffix.startsWith("audio/") ||
+      suffix === "media" ||
+      suffix.startsWith("media/") ||
+      suffix === "status"
+    ) {
+      res.status(404).json({
+        ok: false,
+        error: "Ruta de audio no montada. Redeploy del proxy YTM requerido.",
+      });
+      return;
+    }
     const qs = new URLSearchParams(
       Object.entries(req.query).flatMap(([k, v]) => {
         if (v == null) return [];
@@ -296,18 +310,31 @@ async function proxyYtm(req: Request, res: Response): Promise<void> {
 }
 
 export function mountRichardflixYtm(router: Router): void {
-  router.options("/ytm/audio", (req, res) => {
+  // Rutas explícitas ANTES del proxy genérico (si no, /ytm/audio cae en music.youtube.com/audio → HTML)
+  const audioHandlers = (req: Request, res: Response) => {
     void handleAudioDownload(req, res);
-  });
-  router.get("/ytm/audio", (req, res) => {
-    void handleAudioDownload(req, res);
-  });
-  router.options("/ytm/media", (req, res) => {
+  };
+  const mediaHandlers = (req: Request, res: Response) => {
     void handleMediaProxy(req, res);
+  };
+
+  router.options("/ytm/audio", audioHandlers);
+  router.get("/ytm/audio", audioHandlers);
+  router.options("/music/audio", audioHandlers);
+  router.get("/music/audio", audioHandlers);
+
+  router.options("/ytm/media", mediaHandlers);
+  router.get("/ytm/media", mediaHandlers);
+
+  router.get("/ytm/status", (_req, res) => {
+    setYtmCors(res);
+    res.json({
+      ok: true,
+      audioDownload: true,
+      routes: ["/rf/ytm/audio", "/rf/music/audio", "/rf/ytm/media"],
+    });
   });
-  router.get("/ytm/media", (req, res) => {
-    void handleMediaProxy(req, res);
-  });
+
   router.use("/ytm", (req, res) => {
     void proxyYtm(req, res);
   });
