@@ -50,14 +50,29 @@ type ResolvedStream = {
 
 type CacheEntry = { body: unknown; expiresAt: number };
 const cache = new Map<string, CacheEntry>();
+const CACHE_MAX_KEYS = 40;
 
 function cacheGet<T>(key: string): T | null {
   const hit = cache.get(key);
-  if (!hit || hit.expiresAt < Date.now()) return null;
+  if (!hit || hit.expiresAt < Date.now()) {
+    if (hit) cache.delete(key);
+    return null;
+  }
   return hit.body as T;
 }
 
 function cacheSet(key: string, body: unknown, ttlMs: number): void {
+  if (cache.size >= CACHE_MAX_KEYS) {
+    const now = Date.now();
+    for (const [k, v] of cache) {
+      if (v.expiresAt < now) cache.delete(k);
+    }
+    while (cache.size >= CACHE_MAX_KEYS) {
+      const oldest = cache.keys().next().value;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+  }
   cache.set(key, { body, expiresAt: Date.now() + ttlMs });
 }
 
@@ -375,45 +390,77 @@ async function resolveAjaxFileHost(embedUrl: string, referer: string): Promise<s
   return null;
 }
 
-async function isValidRemux(url: string): Promise<boolean> {
+/** Remux/UnlimPlay a menudo ignoran Range y mandan el archivo entero: leer pocos bytes y cancelar. */
+async function readPrefixBytes(
+  url: string,
+  headers: Record<string, string>,
+  maxBytes: number,
+): Promise<{ status: number; buf: Buffer } | null> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), 12000);
   try {
     const res = await fetch(url, {
-      headers: {
-        "User-Agent": UA,
-        Referer: `${UNLIM}/`,
-        Origin: UNLIM,
-        Range: "bytes=0-2047",
-        Accept: "*/*",
-      },
+      headers,
       redirect: "follow",
+      signal: ac.signal,
     });
-    if (!res.ok) return false;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < 8) return false;
-    return buf.subarray(4, 8).toString("utf8") === "ftyp";
+    if (!res.ok || !res.body) {
+      return { status: res.status, buf: Buffer.alloc(0) };
+    }
+    const reader = res.body.getReader();
+    const chunks: Buffer[] = [];
+    let total = 0;
+    while (total < maxBytes) {
+      const { done, value } = await reader.read();
+      if (done || !value) break;
+      chunks.push(Buffer.from(value));
+      total += value.byteLength;
+      if (total >= maxBytes) break;
+    }
+    try {
+      await reader.cancel();
+    } catch {
+      /* ignore */
+    }
+    ac.abort();
+    return { status: res.status, buf: Buffer.concat(chunks).subarray(0, maxBytes) };
   } catch {
-    return false;
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
+async function isValidRemux(url: string): Promise<boolean> {
+  const hit = await readPrefixBytes(
+    url,
+    {
+      "User-Agent": UA,
+      Referer: `${UNLIM}/`,
+      Origin: UNLIM,
+      Range: "bytes=0-2047",
+      Accept: "*/*",
+    },
+    64,
+  );
+  if (!hit || hit.status >= 400 || hit.buf.length < 8) return false;
+  return hit.buf.subarray(4, 8).toString("utf8") === "ftyp";
+}
+
 async function isReachablePlaylist(url: string, referer: string): Promise<boolean> {
-  try {
-    const res = await fetch(url, {
-      headers: {
-        "User-Agent": UA,
-        Referer: referer,
-        Origin: UNLIM,
-        Accept: "*/*",
-        Range: "bytes=0-2048",
-      },
-      redirect: "follow",
-    });
-    if (!res.ok) return false;
-    const sample = await res.text();
-    return sample.includes("#EXTM3U");
-  } catch {
-    return false;
-  }
+  const hit = await readPrefixBytes(
+    url,
+    {
+      "User-Agent": UA,
+      Referer: referer,
+      Origin: UNLIM,
+      Accept: "*/*",
+      Range: "bytes=0-2048",
+    },
+    256,
+  );
+  if (!hit || hit.status >= 400) return false;
+  return hit.buf.toString("utf8").includes("#EXTM3U");
 }
 
 async function resolveHostStream(
@@ -486,17 +533,10 @@ async function resolveHostStream(
 }
 
 async function validateStream(url: string, referer: string): Promise<boolean> {
-  try {
-    const res = await fetch(url, {
-      method: "GET",
-      headers: { "User-Agent": UA, Referer: referer, Accept: "*/*", Range: "bytes=0-2048" },
-    });
-    if (!res.ok) return false;
-    const sample = await res.text();
-    return sample.includes("#EXTM3U") || sample.includes("#EXT-X-") || url.includes(".mp4");
-  } catch {
-    return false;
+  if (/\.mp4($|\?)/i.test(url) || url.includes("remux.unlimplay.com")) {
+    return isValidRemux(url);
   }
+  return isReachablePlaylist(url, referer);
 }
 
 function proxyUrlFor(target: string, referer: string, req: Request): string {
@@ -742,22 +782,35 @@ export function mountRichardflixStream(router: Router): void {
       }
 
       const ct = upstream.headers.get("content-type") || "";
-      const buf = Buffer.from(await upstream.arrayBuffer());
+      const looksPlaylist =
+        ct.includes("mpegurl") || ct.includes("m3u8") || /\.m3u8($|\?)/i.test(u);
 
-      if (ct.includes("mpegurl") || ct.includes("m3u8") || buf.slice(0, 8).toString("utf8").startsWith("#EXTM3U")) {
-        const text = buf.toString("utf8");
-        const rewritten = rewriteM3u8(text, u, r, req, req.query.nosubs !== "0");
-        res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Cache-Control", "no-cache");
-        res.send(rewritten);
-        return;
+      // Solo bufferizar playlists (pequeñas). Media binaria: pipe streaming.
+      if (looksPlaylist) {
+        const text = await upstream.text();
+        if (text.length > 2_000_000) {
+          res.status(502).send("playlist too large");
+          return;
+        }
+        if (text.includes("#EXTM3U") || text.includes("#EXT-X-")) {
+          const rewritten = rewriteM3u8(text, u, r, req, req.query.nosubs !== "0");
+          res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
+          res.setHeader("Access-Control-Allow-Origin", "*");
+          res.setHeader("Cache-Control", "no-cache");
+          res.send(rewritten);
+          return;
+        }
       }
 
       res.setHeader("Content-Type", ct || "application/octet-stream");
       res.setHeader("Access-Control-Allow-Origin", "*");
       res.setHeader("Cache-Control", "public, max-age=3600");
-      res.send(buf);
+      if (!upstream.body) {
+        res.status(502).send("empty upstream");
+        return;
+      }
+      const { Readable } = await import("node:stream");
+      Readable.fromWeb(upstream.body as import("node:stream/web").ReadableStream).pipe(res);
     } catch (e) {
       res.status(502).send(e instanceof Error ? e.message : "proxy error");
     }
