@@ -12,22 +12,22 @@ const UNLIM = "https://unlimplay.com";
 export type StreamLang = "latino" | "espanol" | "subtitulado";
 export type StreamMediaType = "movie" | "tv";
 
-/** Orden del POC tvOS: native primero, luego preferredHosts de UnlimPlayResolver. */
+/** Orden: native → verdes UnlimPlay (vidhide/filelions/earnvids) → resto. */
 const HOST_PRIORITY = [
   "direct",
   "remux",
-  "streamwish",
-  "streamwish 2",
   "vidhide",
   "vidhide 2",
+  "filelions",
+  "earnvids",
+  "earnvid",
+  "streamwish",
+  "streamwish 2",
   "voe",
   "voe 2",
   "voe 3",
   "filemoon",
   "filemoon 2",
-  "filelions",
-  "earnvids",
-  "earnvid",
   "netu",
   "netu 2",
   "netu2",
