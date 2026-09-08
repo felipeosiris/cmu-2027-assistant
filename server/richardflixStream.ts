@@ -555,11 +555,11 @@ function packResolved(
   req: Request,
 ): ResolvedStream {
   const isHls = kind === "hls";
-  const useDirect = isHls && (host === "direct" || !validated);
-  if (useDirect) {
+  // El navegador no puede reproducir m3u8 cross-origin de UnlimPlay: siempre proxy HLS.
+  if (isHls) {
     return {
-      mode: isHls ? "hls-direct" : "mp4-direct",
-      url: streamUrl,
+      mode: "hls-proxy",
+      url: proxyUrlFor(streamUrl, referer, req),
       referer,
       host,
       lang,
@@ -567,7 +567,7 @@ function packResolved(
     };
   }
   return {
-    mode: isHls ? "hls-proxy" : "mp4-proxy",
+    mode: "mp4-proxy",
     url: proxyUrlFor(streamUrl, referer, req),
     referer,
     host,
@@ -596,38 +596,39 @@ export async function resolvePlayableStream(
   const referer = embedReferer(opts);
   const idx = Math.max(0, opts.hostIndex ?? 0);
 
-  // 1) Preferir HLS `direct` validado (como Apple TV).
-  for (const lang of langs) {
-    const track = embeds[lang] || pickTrack(embeds, lang);
-    if (!track) continue;
-    const direct = track.direct;
-    if (typeof direct === "string" && direct.includes(".m3u8")) {
-      const { streamUrl, kind } = await resolveHostStream("direct", direct, referer);
-      if (streamUrl && kind === "hls") {
-        const validated = await isReachablePlaylist(streamUrl, referer);
-        return packResolved(streamUrl, "hls", referer, "direct", lang, validated, req);
+  // Solo intentar native en el primer intento. Si hostIndex>0 el cliente ya falló direct/remux.
+  if (idx === 0) {
+    for (const lang of langs) {
+      const track = embeds[lang] || pickTrack(embeds, lang);
+      if (!track) continue;
+      const direct = track.direct;
+      if (typeof direct === "string" && direct.includes(".m3u8")) {
+        const { streamUrl, kind } = await resolveHostStream("direct", direct, referer);
+        if (streamUrl && kind === "hls") {
+          const validated = await isReachablePlaylist(streamUrl, referer);
+          return packResolved(streamUrl, "hls", referer, "direct", lang, validated, req);
+        }
+      }
+    }
+
+    for (const lang of langs) {
+      const track = embeds[lang] || pickTrack(embeds, lang);
+      if (!track?.remux || typeof track.remux !== "string") continue;
+      const { streamUrl, kind } = await resolveHostStream("remux", track.remux, referer);
+      if (streamUrl && kind === "mp4") {
+        return packResolved(streamUrl, "mp4", `${UNLIM}/`, "remux", lang, true, req);
+      }
+    }
+
+    if (opts.type !== "tv") {
+      const candidate = `https://remux.unlimplay.com/remux?id=${opts.tmdbId}`;
+      if (await isValidRemux(candidate)) {
+        return packResolved(candidate, "mp4", `${UNLIM}/`, "remux", opts.lang, true, req);
       }
     }
   }
 
-  // 2) Remux MP4 con ftyp real.
-  for (const lang of langs) {
-    const track = embeds[lang] || pickTrack(embeds, lang);
-    if (!track?.remux || typeof track.remux !== "string") continue;
-    const { streamUrl, kind } = await resolveHostStream("remux", track.remux, referer);
-    if (streamUrl && kind === "mp4") {
-      return packResolved(streamUrl, "mp4", `${UNLIM}/`, "remux", lang, true, req);
-    }
-  }
-
-  if (opts.type !== "tv") {
-    const candidate = `https://remux.unlimplay.com/remux?id=${opts.tmdbId}`;
-    if (await isValidRemux(candidate)) {
-      return packResolved(candidate, "mp4", `${UNLIM}/`, "remux", opts.lang, true, req);
-    }
-  }
-
-  // 3) Hosts preferidos: intentar nativo; si no, embed del host (nunca shell UnlimPlay).
+  // Embeds: hostIndex apunta al host elegido (saltando direct/remux en la lista ordenada).
   const track = pickTrack(embeds, opts.lang);
   if (!track) return fallbackVidSrc(opts);
 
@@ -636,6 +637,7 @@ export async function resolvePlayableStream(
     ([h]) => h !== "searched_names" && !HOST_PRIORITY.includes(h as (typeof HOST_PRIORITY)[number]),
   );
   const allHosts = [...ordered, ...extras];
+  // Si idx>0, el cliente manda el índice real en la lista de hosts (incluye direct).
   const slice = allHosts.slice(idx);
 
   for (const [host, embedUrl] of slice) {
@@ -652,6 +654,14 @@ export async function resolvePlayableStream(
   }
 
   for (const [host, embedUrl] of slice) {
+    if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
+    if (host === "direct" || host === "remux") continue;
+    if (/unlimplay\.com/i.test(embedUrl) && /\/(f\/)?(play\/)?embed\//i.test(embedUrl)) continue;
+    return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
+  }
+
+  // Si idx apuntaba a direct y falló native arriba, devolver primer verde/embed
+  for (const [host, embedUrl] of allHosts) {
     if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
     if (host === "direct" || host === "remux") continue;
     if (/unlimplay\.com/i.test(embedUrl) && /\/(f\/)?(play\/)?embed\//i.test(embedUrl)) continue;
