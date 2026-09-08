@@ -8,6 +8,7 @@ import type { Request, Response, Router } from "express";
 import { Router as createRouter } from "express";
 import { mountRichardflixLiveTv } from "./richardflixLiveTv.js";
 import { mountRichardflixStream } from "./richardflixStream.js";
+import { mountRichardflixYtm } from "./richardflixYtm.js";
 
 const SPORTSRC_HOST = "https://api.sportsrc.org";
 const DEFAULT_SPORTSRC_KEY = "5824e01ab5b0ecdc91310ecabbd16f32";
@@ -1071,8 +1072,11 @@ async function getDetail(opts: {
 
 function setCors(res: Response): void {
   res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Accept, Content-Type");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Accept, Content-Type, X-Goog-Api-Format-Version, X-YouTube-Client-Name, X-YouTube-Client-Version, User-Agent",
+  );
   res.setHeader("Access-Control-Max-Age", "86400");
 }
 
@@ -1099,6 +1103,7 @@ export function createRichardflixSportsRouter(): Router {
 
   mountRichardflixLiveTv(router);
   mountRichardflixStream(router);
+  mountRichardflixYtm(router);
 
   /** Proxy crudo: /rf/sportsrc/?data=matches&category=basketball */
   router.use("/sportsrc", async (req, res) => {
