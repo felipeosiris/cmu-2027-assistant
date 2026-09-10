@@ -29,6 +29,13 @@ app.get("/", (_req, res) => {
       "GET /rf/stream/sources?type=movie|tv&tmdb=&lang=latino",
       "GET /rf/stream/proxy?u=&r=  (proxy HLS/mp4)",
       "POST /rf/ytm/youtubei/v1/{search|browse|player}  (YouTube Music InnerTube)",
+      "GET /rf/dramas/home",
+      "GET /rf/dramas/trending",
+      "GET /rf/dramas/for-you",
+      "GET /rf/dramas/search?q=",
+      "GET /rf/dramas/:id",
+      "GET /rf/dramas/:id/episodes",
+      "GET /rf/dramas/:id/stream?ep=1",
     ],
   });
 });

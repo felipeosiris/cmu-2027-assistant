@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import type { Request, Response, Router } from "express";
 import { Router as createRouter } from "express";
+import { mountRichardflixDramas } from "./richardflixDramas.js";
 import { mountRichardflixLiveTv } from "./richardflixLiveTv.js";
 import { mountRichardflixStream } from "./richardflixStream.js";
 import { mountRichardflixYtm } from "./richardflixYtm.js";
@@ -1104,6 +1105,7 @@ export function createRichardflixSportsRouter(): Router {
   mountRichardflixLiveTv(router);
   mountRichardflixStream(router);
   mountRichardflixYtm(router);
+  mountRichardflixDramas(router);
 
   /** Proxy crudo: /rf/sportsrc/?data=matches&category=basketball */
   router.use("/sportsrc", async (req, res) => {
