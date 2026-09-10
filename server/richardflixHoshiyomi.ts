@@ -1,13 +1,13 @@
 /**
- * Hoshiyomi free platforms (trial key) — short dramas con episodios completos.
- * DramaBox/ReelShort/etc. requieren plan Starter+ y se omiten aquí.
+ * Hoshiyomi platforms — plan PRE/Starter+ desbloquea DramaBox y premium.
  */
 import type { Request, Response, Router } from "express";
 
 const HOSHIYOMI_BASE = "https://api.hoshiyomi.my.id";
 
-/** Plataformas free del plan personal (no STARTER+). */
-export const HOSHIYOMI_FREE_PLATFORMS = [
+/** Todas las plataformas del plan PRE (free + STARTER+). Path = segmento /api/{id}/… */
+export const HOSHIYOMI_PLATFORMS = [
+  "dramaboxv2",
   "pinedrama",
   "netshort",
   "idrama",
@@ -17,11 +17,25 @@ export const HOSHIYOMI_FREE_PLATFORMS = [
   "flareflow",
   "dramawave",
   "goodshort",
+  "dramabite",
+  "starshort",
+  "playlet",
+  "melolo",
+  "shortmax",
+  "reelshort",
+  "moboreels",
+  "dramanova",
+  "iqiyi",
+  "wetv",
 ] as const;
 
-export type HoshiyomiPlatform = (typeof HOSHIYOMI_FREE_PLATFORMS)[number];
+/** @deprecated alias */
+export const HOSHIYOMI_FREE_PLATFORMS = HOSHIYOMI_PLATFORMS;
+
+export type HoshiyomiPlatform = (typeof HOSHIYOMI_PLATFORMS)[number];
 
 const PLATFORM_LABEL: Record<string, string> = {
+  dramaboxv2: "DramaBox",
   pinedrama: "PineDrama",
   netshort: "NetShort",
   idrama: "iDrama",
@@ -31,6 +45,16 @@ const PLATFORM_LABEL: Record<string, string> = {
   flareflow: "FlareFlow",
   dramawave: "DramaWave",
   goodshort: "GoodShort",
+  dramabite: "DramaBite",
+  starshort: "StarShort",
+  playlet: "Playlet",
+  melolo: "Melolo",
+  shortmax: "ShortMax",
+  reelshort: "ReelShort",
+  moboreels: "MoboReels",
+  dramanova: "DramaNova",
+  iqiyi: "iQIYI",
+  wetv: "WeTV",
 };
 
 type CacheEntry = { body: unknown; expiresAt: number };
@@ -93,7 +117,7 @@ function asRecord(v: unknown): Record<string, unknown> | null {
 }
 
 function isPlatform(p: string): p is HoshiyomiPlatform {
-  return (HOSHIYOMI_FREE_PLATFORMS as readonly string[]).includes(p);
+  return (HOSHIYOMI_PLATFORMS as readonly string[]).includes(p);
 }
 
 async function hoshiFetch(path: string): Promise<unknown> {
@@ -145,7 +169,8 @@ function normalizeCard(raw: unknown, provider: HoshiyomiPlatform): TrialDramaCar
   const title = String(r.title ?? r.bookName ?? r.name ?? "Drama").trim();
   const cover = String(r.cover ?? r.coverWap ?? r.picUrl ?? "").trim();
   const introduction = String(r.description ?? r.desc ?? r.introduction ?? "").trim();
-  const episodes = Number(r.episodes ?? r.episodeCount ?? r.totalEpisodes ?? 0) || undefined;
+  const episodes =
+    Number(r.episodes ?? r.episodeCount ?? r.chapterCount ?? r.totalEpisodes ?? 0) || undefined;
   return {
     id,
     title,
@@ -158,26 +183,72 @@ function normalizeCard(raw: unknown, provider: HoshiyomiPlatform): TrialDramaCar
 }
 
 function pickVideoUrl(ep: Record<string, unknown>): string | undefined {
-  const direct = [ep.videoUrl, ep.videoPath, ep.url, ep.playUrl, ep.m3u8, ep.mp4];
+  const direct = [ep.videoUrl, ep.videoPath, ep.url, ep.playUrl, ep.m3u8, ep.mp4, ep.hlsUrl, ep.hls];
   for (const v of direct) {
-    if (typeof v === "string" && v.startsWith("http")) return v;
+    if (typeof v === "string" && (v.startsWith("http") || v.startsWith("/api/"))) return v;
   }
   const stream = asRecord(ep.stream) || asRecord(ep.video);
   if (stream) {
-    for (const k of ["url", "mp4", "m3u8", "videoUrl", "videoPath"]) {
+    for (const k of ["url", "mp4", "m3u8", "videoUrl", "videoPath", "hlsUrl"]) {
       const v = stream[k];
-      if (typeof v === "string" && v.startsWith("http")) return v;
+      if (typeof v === "string" && (v.startsWith("http") || v.startsWith("/api/"))) return v;
     }
   }
   const qualities = ep.qualityList;
   if (Array.isArray(qualities)) {
     for (const q of qualities) {
       const qr = asRecord(q);
-      const u = qr?.url || qr?.videoUrl || qr?.playUrl;
-      if (typeof u === "string" && u.startsWith("http")) return u;
+      const u = qr?.url || qr?.videoUrl || qr?.playUrl || qr?.hlsUrl;
+      if (typeof u === "string" && (u.startsWith("http") || u.startsWith("/api/"))) return u;
     }
   }
   return undefined;
+}
+
+/** Resuelve /api/... relativo o playlist HLS de Hoshiyomi a URL directa (CDN). */
+async function resolvePlayableUrl(rawUrl: string): Promise<string> {
+  let url = rawUrl.trim();
+  if (url.startsWith("/")) {
+    url = `${HOSHIYOMI_BASE}${url}`;
+  }
+  // Si ya es CDN directo, listo
+  if (!url.includes("hoshiyomi.my.id") && !url.includes("/api/dramabox")) {
+    return url;
+  }
+
+  const key = apiKey();
+  const res = await fetch(url, {
+    headers: {
+      "X-API-Key": key,
+      Accept: "*/*",
+    },
+  });
+  if (!res.ok) {
+    throw new Error(`No se pudo resolver stream (${res.status})`);
+  }
+  const ct = (res.headers.get("content-type") || "").toLowerCase();
+  const text = await res.text();
+  if (ct.includes("mpegurl") || text.trimStart().startsWith("#EXTM3U")) {
+    const lines = text.split(/\r?\n/);
+    for (const line of lines) {
+      const t = line.trim();
+      if (t.startsWith("http://") || t.startsWith("https://")) return t;
+    }
+  }
+  // JSON con url embebida
+  try {
+    const body = JSON.parse(text) as unknown;
+    const rec = asRecord(body);
+    const data = asRecord(rec?.data) || rec;
+    if (data) {
+      const found = pickVideoUrl(data);
+      if (found && found !== rawUrl) return resolvePlayableUrl(found);
+    }
+  } catch {
+    /* no JSON */
+  }
+  // Último recurso: devolver URL autenticable solo en server (no al client)
+  return url;
 }
 
 function normalizeEpisodes(raw: unknown): TrialEpisode[] {
@@ -196,7 +267,7 @@ function normalizeEpisodes(raw: unknown): TrialEpisode[] {
     const rawNum = Number(ep.number ?? ep.episode ?? ep.chapterIndex);
     const episode = Number.isFinite(rawNum) && rawNum >= 0 ? (rawNum >= 1 ? rawNum : rawNum + 1) : i + 1;
     const url = pickVideoUrl(ep);
-    const locked = ep.locked === true || (!url && (ep.isCharge === 1 || ep.isPay === 1));
+    const lockedFlag = ep.locked === true || ep.isCharge === 1 || ep.isPay === 1;
     return {
       index: episode - 1,
       episode,
@@ -204,7 +275,7 @@ function normalizeEpisodes(raw: unknown): TrialEpisode[] {
       name: String(ep.name ?? ep.chapterName ?? `Episodio ${episode}`),
       quality: typeof ep.quality === "number" ? ep.quality : undefined,
       url,
-      locked: locked || !url,
+      locked: Boolean(lockedFlag) || !url,
     } satisfies TrialEpisode;
   });
 
@@ -232,32 +303,41 @@ export async function fetchTrialHome(lang = "es"): Promise<{
     return { rows: [], hasKey: false };
   }
 
-  const cacheKey = `hoshi:home:${lang}`;
+  const cacheKey = `hoshi:home:pre:${lang}`;
   const hit = cacheGet<{ rows: Array<{ provider: string; label: string; items: TrialDramaCard[] }> }>(cacheKey);
   if (hit) return { ...hit, hasKey: true };
 
-  // Priorizar las que suelen traer ES + allepisode útil (pocas para respetar 10 RPM)
+  // PRE: 500 RPM — varias plataformas en paralelo; DramaBox primero
   const preferred: HoshiyomiPlatform[] = [
+    "dramaboxv2",
     "pinedrama",
     "netshort",
+    "reelshort",
+    "shortmax",
     "idrama",
     "stardusttv",
     "flickreels",
+    "goodshort",
+    "melolo",
   ];
 
-  const rows: Array<{ provider: string; label: string; items: TrialDramaCard[] }> = [];
-  for (const provider of preferred) {
-    try {
+  const settled = await Promise.allSettled(
+    preferred.map(async (provider) => {
       const items = await fetchTrialTrending(provider, lang);
-      if (items.length) {
-        rows.push({
-          provider,
-          label: PLATFORM_LABEL[provider] || provider,
-          items,
-        });
-      }
-    } catch (e) {
-      console.warn(`[hoshiyomi] trending ${provider}:`, e instanceof Error ? e.message : e);
+      return {
+        provider,
+        label: PLATFORM_LABEL[provider] || provider,
+        items,
+      };
+    }),
+  );
+
+  const rows: Array<{ provider: string; label: string; items: TrialDramaCard[] }> = [];
+  for (const r of settled) {
+    if (r.status === "fulfilled" && r.value.items.length) {
+      rows.push(r.value);
+    } else if (r.status === "rejected") {
+      console.warn(`[hoshiyomi] trending:`, r.reason instanceof Error ? r.reason.message : r.reason);
     }
   }
 
@@ -296,7 +376,7 @@ export async function fetchTrialDetail(
     const detail = await hoshiFetch(
       `/api/${provider}/detail?id=${encodeURIComponent(id)}&lang=${encodeURIComponent(lang)}`,
     );
-    meta = normalizeCard(detail, provider);
+    meta = normalizeCard(asRecord(detail)?.data ?? detail, provider) || normalizeCard(detail, provider);
   } catch {
     /* algunas plataformas no tienen detail */
   }
@@ -318,7 +398,7 @@ export async function fetchTrialDetail(
     const raw = await hoshiFetch(
       `/api/${provider}/allepisode?id=${encodeURIComponent(id)}&lang=${encodeURIComponent(lang)}`,
     );
-    episodes = normalizeEpisodes(raw);
+    episodes = normalizeEpisodes(asRecord(raw)?.data ?? raw);
   } catch (e) {
     console.warn(`[hoshiyomi] allepisode ${provider}/${id}:`, e instanceof Error ? e.message : e);
   }
@@ -357,22 +437,25 @@ export async function fetchTrialStream(
 }> {
   const { drama } = await fetchTrialDetail(provider, id, lang);
   const ep = drama.episodes.find((e) => e.episode === episode);
-  if (!ep?.url) {
+
+  if (!ep?.url || ep.locked) {
     const err = new Error(
       ep?.locked ? "Episodio bloqueado en esta plataforma" : "Sin URL de reproducción",
     ) as Error & { code?: string };
     if (ep?.locked) err.code = "LOCKED";
     throw err;
   }
+
+  const resolved = await resolvePlayableUrl(ep.url);
   return {
     bookId: id,
     episode,
-    allEps: drama.available,
+    allEps: drama.available || drama.seriesTotal,
     seriesTotal: drama.seriesTotal,
     quality: ep.quality || 0,
     source: "hoshiyomi",
-    type: ep.url.includes(".m3u8") ? "hls" : "mp4",
-    url: ep.url,
+    type: resolved.includes(".m3u8") ? "hls" : "mp4",
+    url: resolved,
     provider,
   };
 }
@@ -383,7 +466,7 @@ export function mountRichardflixHoshiyomi(router: Router): void {
       const lang = typeof req.query.lang === "string" ? req.query.lang : "es";
       const home = await fetchTrialHome(lang);
       res.setHeader("Cache-Control", "public, max-age=120");
-      res.json({ success: true, language: lang, ...home });
+      res.json({ success: true, language: lang, plan: "pre", ...home });
     } catch (e) {
       res.status(502).json({
         success: false,
@@ -397,8 +480,8 @@ export function mountRichardflixHoshiyomi(router: Router): void {
     if (!isPlatform(provider)) {
       res.status(400).json({
         success: false,
-        error: "provider no soportado en trial",
-        providers: HOSHIYOMI_FREE_PLATFORMS,
+        error: "provider no soportado",
+        providers: HOSHIYOMI_PLATFORMS,
       });
       return;
     }
