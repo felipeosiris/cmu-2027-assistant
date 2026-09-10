@@ -215,6 +215,12 @@ function pickVideoUrl(ep: Record<string, unknown>): string | undefined {
   return undefined;
 }
 
+function detectStreamType(url: string): "mp4" | "hls" {
+  const u = url.toLowerCase();
+  if (u.includes(".m3u8") || u.includes("/hls") || u.includes("mpegurl")) return "hls";
+  return "mp4";
+}
+
 /** Resuelve /api/... relativo o playlist HLS de Hoshiyomi a URL directa (CDN). */
 async function resolvePlayableUrl(rawUrl: string): Promise<string> {
   let url = rawUrl.trim();
@@ -222,7 +228,7 @@ async function resolvePlayableUrl(rawUrl: string): Promise<string> {
     url = `${HOSHIYOMI_BASE}${url}`;
   }
   // Si ya es CDN directo, listo
-  if (!url.includes("hoshiyomi.my.id") && !url.includes("/api/dramabox")) {
+  if (!url.includes("hoshiyomi.my.id")) {
     return url;
   }
 
@@ -245,6 +251,8 @@ async function resolvePlayableUrl(rawUrl: string): Promise<string> {
       const t = line.trim();
       if (t.startsWith("http://") || t.startsWith("https://")) return t;
     }
+    // Playlist con segmentos relativos (.ts): no sirve al browser sin proxy/API key
+    throw new Error("HLS relativo sin CDN absoluto; usa endpoint episode");
   }
   // JSON con url embebida
   try {
@@ -258,8 +266,39 @@ async function resolvePlayableUrl(rawUrl: string): Promise<string> {
   } catch {
     /* no JSON */
   }
-  // Último recurso: devolver URL autenticable solo en server (no al client)
-  return url;
+  throw new Error("No se pudo obtener URL de reproducción directa");
+}
+
+async function fetchEpisodePlayUrl(
+  provider: HoshiyomiPlatform,
+  id: string,
+  episode: number,
+  lang: string,
+): Promise<string | null> {
+  try {
+    const raw = await hoshiFetch(
+      `/api/${provider}/episode?id=${encodeURIComponent(id)}&ep=${episode}&lang=${encodeURIComponent(lang)}`,
+    );
+    const rec = asRecord(raw);
+    const data = asRecord(rec?.data) || rec || {};
+    // Preferir CDN absoluto (videoUrl / qualityList), no el proxy /hls relativo
+    const qualities = Array.isArray(data.qualityList) ? data.qualityList : [];
+    const preferred = [...qualities].reverse(); // suele ir ld→hd; tomar la más alta al final
+    for (const q of preferred) {
+      const qr = asRecord(q);
+      const u = qr?.url;
+      if (typeof u === "string" && u.startsWith("http") && !u.includes("hoshiyomi.my.id")) return u;
+    }
+    for (const k of ["videoUrl", "playUrl", "url", "m3u8", "mp4"]) {
+      const v = data[k];
+      if (typeof v === "string" && v.startsWith("http") && !v.includes("hoshiyomi.my.id")) return v;
+    }
+    const fallback = pickVideoUrl(data);
+    if (fallback?.startsWith("http") && !fallback.includes("hoshiyomi.my.id")) return fallback;
+  } catch (e) {
+    console.warn(`[hoshiyomi] episode ${provider}/${id}/${episode}:`, e instanceof Error ? e.message : e);
+  }
+  return null;
 }
 
 function normalizeEpisodes(raw: unknown): TrialEpisode[] {
@@ -566,23 +605,35 @@ export async function fetchTrialStream(
   const { drama } = await fetchTrialDetail(provider, id, lang);
   const ep = drama.episodes.find((e) => e.episode === episode);
 
-  if (!ep?.url || ep.locked) {
-    const err = new Error(
-      ep?.locked ? "Episodio bloqueado en esta plataforma" : "Sin URL de reproducción",
-    ) as Error & { code?: string };
-    if (ep?.locked) err.code = "LOCKED";
+  if (ep?.locked) {
+    const err = new Error("Episodio bloqueado en esta plataforma") as Error & { code?: string };
+    err.code = "LOCKED";
     throw err;
   }
 
-  const resolved = await resolvePlayableUrl(ep.url);
+  // ReelShort/etc: allepisode trae /hls relativo; episode trae videoUrl CDN absoluto
+  let resolved = await fetchEpisodePlayUrl(provider, id, episode, lang);
+
+  if (!resolved && ep?.url) {
+    try {
+      resolved = await resolvePlayableUrl(ep.url);
+    } catch (e) {
+      console.warn(`[hoshiyomi] resolve ${provider}/${id}/${episode}:`, e instanceof Error ? e.message : e);
+    }
+  }
+
+  if (!resolved) {
+    throw new Error("Sin URL de reproducción");
+  }
+
   return {
     bookId: id,
     episode,
     allEps: drama.available || drama.seriesTotal,
     seriesTotal: drama.seriesTotal,
-    quality: ep.quality || 0,
+    quality: ep?.quality || 0,
     source: "hoshiyomi",
-    type: resolved.includes(".m3u8") ? "hls" : "mp4",
+    type: detectStreamType(resolved),
     url: resolved,
     provider,
   };
