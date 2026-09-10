@@ -294,7 +294,18 @@ const DUB_FILTER_PROVIDERS = new Set<string>([
   "melolo",
   "moboreels",
   "dramanova",
+  "goodshort",
+  "flickreels",
+  "netshort",
+  "idrama",
 ]);
+
+function looksEnglishOnly(title: string): boolean {
+  if (/[áéíóúñ¿¡]/i.test(title)) return false;
+  if (isSpanishDubTitle(title)) return false;
+  // Títulos claramente EN sin marcador de doblaje
+  return /\b(the|with|who|my|love|king|queen|billionaire|wife|husband|secret)\b/i.test(title);
+}
 
 export async function fetchTrialTrending(provider: HoshiyomiPlatform, lang = "es"): Promise<TrialDramaCard[]> {
   const key = `hoshi:trending:${provider}:${lang}:dubv1`;
@@ -308,7 +319,10 @@ export async function fetchTrialTrending(provider: HoshiyomiPlatform, lang = "es
 
   if (DUB_FILTER_PROVIDERS.has(provider)) {
     const dubbed = items.filter((x) => isSpanishDubTitle(x.title));
-    if (dubbed.length) items = dubbed;
+    // Sin marcador "Doblado" no asumimos audio ES (suelen ser subtítulos)
+    items = dubbed;
+  } else {
+    items = items.filter((x) => !looksEnglishOnly(x.title));
   }
 
   cacheSet(key, items, 30 * 60 * 1000);
@@ -330,13 +344,12 @@ export async function fetchTrialHome(lang = "es"): Promise<{
   // Primero plataformas que en trial sonaban en español; dobladas premium después
   const preferred: HoshiyomiPlatform[] = [
     "pinedrama",
+    "stardusttv",
+    "shortmax",
+    "goodshort",
     "netshort",
     "idrama",
-    "stardusttv",
     "flickreels",
-    "freereels",
-    "goodshort",
-    "shortmax",
     "dramaboxv2",
     "reelshort",
   ];
