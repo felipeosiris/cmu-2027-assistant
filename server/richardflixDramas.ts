@@ -42,6 +42,14 @@ type ChapterRaw = {
   chapterIndex?: number;
   chapterName?: string;
   cdnList?: CdnEntry[];
+  videoPath?: string;
+};
+
+type BatchEpisodeRaw = {
+  chapterId?: string | number;
+  chapterIndex?: number;
+  chapterName?: string;
+  videoPath?: string;
 };
 
 let client: InstanceType<typeof DramaboxClient> | null = null;
@@ -51,7 +59,8 @@ function getClient(): InstanceType<typeof DramaboxClient> {
     client = new DramaboxClient({
       language: "es",
       version: "470",
-      timeout: 45000,
+      // batchDownload puede tardar 15–40s al resolver varios capítulos
+      timeout: 90000,
       requestDelay: 250,
       maxRetries: 2,
     });
@@ -161,7 +170,12 @@ function normalizeEpisodes(chapters: ChapterRaw[]): DramaEpisode[] {
   return chapters
     .map((ch, i) => {
       const index = typeof ch.chapterIndex === "number" ? ch.chapterIndex : i;
-      const video = pickBestVideo(ch);
+      const fromCdn = pickBestVideo(ch);
+      const direct =
+        typeof ch.videoPath === "string" && ch.videoPath.startsWith("http")
+          ? { url: ch.videoPath, quality: 720 }
+          : null;
+      const video = fromCdn || direct;
       return {
         index,
         episode: index + 1,
@@ -171,6 +185,28 @@ function normalizeEpisodes(chapters: ChapterRaw[]): DramaEpisode[] {
         url: video?.url,
       };
     })
+    .sort((a, b) => a.index - b.index);
+}
+
+function normalizeBatchEpisodes(raw: unknown): DramaEpisode[] {
+  if (!Array.isArray(raw)) return [];
+  return (raw as BatchEpisodeRaw[])
+    .map((ep, i) => {
+      const index = typeof ep.chapterIndex === "number" ? ep.chapterIndex : i;
+      const url =
+        typeof ep.videoPath === "string" && ep.videoPath.startsWith("http")
+          ? ep.videoPath
+          : undefined;
+      return {
+        index,
+        episode: index + 1,
+        chapterId: String(ep.chapterId ?? ""),
+        name: (ep.chapterName || `Episodio ${index + 1}`).trim(),
+        quality: url ? 720 : undefined,
+        url,
+      };
+    })
+    .filter((ep) => Boolean(ep.url))
     .sort((a, b) => a.index - b.index);
 }
 
@@ -194,32 +230,96 @@ async function loadHomepage(): Promise<{
   return body;
 }
 
-async function loadChapters(bookId: string): Promise<{
+async function loadChaptersFromList(bookId: string): Promise<{
   bookId: string;
   totalChapters: number;
   episodes: DramaEpisode[];
+  source: "chapters";
 }> {
-  const key = `dramas:chapters:${bookId}`;
-  const hit = cacheGet<{ bookId: string; totalChapters: number; episodes: DramaEpisode[] }>(key);
-  if (hit) return hit;
-
   const res = await getClient().getChapters(bookId);
   const data = asRecord(res?.data) || {};
   const chapters = Array.isArray(data.chapters) ? (data.chapters as ChapterRaw[]) : [];
-  const body = {
+  const episodes = normalizeEpisodes(chapters);
+  return {
     bookId: String(data.bookId || bookId),
-    totalChapters: Number(data.totalChapters) || chapters.length,
-    episodes: normalizeEpisodes(chapters),
+    totalChapters: Number(data.totalChapters) || episodes.length,
+    episodes,
+    source: "chapters",
   };
-  cacheSet(key, body, 10 * 60 * 1000);
-  return body;
+}
+
+/** Prefer batchDownload: desbloquea más episodios que el free tier de getChapters (~6). */
+async function loadChapters(bookId: string): Promise<{
+  bookId: string;
+  totalChapters: number;
+  seriesTotal: number;
+  episodes: DramaEpisode[];
+  source: "batch" | "chapters";
+}> {
+  const key = `dramas:batch:${bookId}`;
+  const hit = cacheGet<{
+    bookId: string;
+    totalChapters: number;
+    seriesTotal: number;
+    episodes: DramaEpisode[];
+    source: "batch" | "chapters";
+  }>(key);
+  if (hit) return hit;
+
+  const [listSettled, batchSettled] = await Promise.allSettled([
+    loadChaptersFromList(bookId),
+    getClient().batchDownload(bookId),
+  ]);
+
+  const list =
+    listSettled.status === "fulfilled"
+      ? listSettled.value
+      : null;
+  const seriesTotalHint = list?.totalChapters || list?.episodes.length || 0;
+
+  if (batchSettled.status === "fulfilled") {
+    const data = asRecord(batchSettled.value?.data) || {};
+    const episodes = normalizeBatchEpisodes(data.episodes);
+    if (episodes.length > 0) {
+      const body = {
+        bookId: String(data.bookId || bookId),
+        totalChapters: episodes.length,
+        seriesTotal: Math.max(seriesTotalHint, Number(data.totalEpisodes) || 0, episodes.length),
+        episodes,
+        source: "batch" as const,
+      };
+      cacheSet(key, body, 20 * 60 * 1000);
+      return body;
+    }
+  }
+
+  if (list && list.episodes.length > 0) {
+    const body = {
+      bookId: list.bookId,
+      totalChapters: list.episodes.length,
+      seriesTotal: Math.max(seriesTotalHint, list.totalChapters, list.episodes.length),
+      episodes: list.episodes,
+      source: "chapters" as const,
+    };
+    cacheSet(key, body, 10 * 60 * 1000);
+    return body;
+  }
+
+  throw new Error(
+    batchSettled.status === "rejected"
+      ? batchSettled.reason instanceof Error
+        ? batchSettled.reason.message
+        : "batchDownload falló"
+      : "Sin episodios disponibles",
+  );
 }
 
 async function resolveStreamUrl(bookId: string, episode: number): Promise<{
   url: string;
   quality: number;
-  source: "chapters" | "stream";
+  source: "batch" | "chapters" | "stream";
   allEps: number;
+  seriesTotal: number;
 }> {
   const chapters = await loadChapters(bookId);
   const ep = chapters.episodes.find((e) => e.episode === episode) || chapters.episodes[episode - 1];
@@ -227,12 +327,13 @@ async function resolveStreamUrl(bookId: string, episode: number): Promise<{
     return {
       url: ep.url,
       quality: ep.quality || 0,
-      source: "chapters",
+      source: chapters.source,
       allEps: chapters.totalChapters,
+      seriesTotal: chapters.seriesTotal,
     };
   }
 
-  // Fallback: API de stream (índice suele ser 0-based en el cliente npm)
+  // Fallback: API de stream (índice 0-based en el cliente npm)
   const streamRes = await getClient().getStreamUrl(bookId, Math.max(0, episode - 1));
   const outer = asRecord(streamRes?.data);
   const inner = asRecord(outer?.data) || outer;
@@ -249,6 +350,7 @@ async function resolveStreamUrl(bookId: string, episode: number): Promise<{
     quality: 0,
     source: "stream",
     allEps: Number(inner?.allEps) || chapters.totalChapters,
+    seriesTotal: chapters.seriesTotal,
   };
 }
 
@@ -349,6 +451,8 @@ export function mountRichardflixDramas(router: Router): void {
         success: true,
         bookId: data.bookId,
         total: data.totalChapters,
+        seriesTotal: data.seriesTotal,
+        source: data.source,
         episodes: data.episodes.map(({ url: _u, ...rest }) => rest),
       });
     } catch (e) {
@@ -374,6 +478,7 @@ export function mountRichardflixDramas(router: Router): void {
         bookId: id,
         episode,
         allEps: stream.allEps,
+        seriesTotal: stream.seriesTotal,
         quality: stream.quality,
         source: stream.source,
         type: stream.url.includes(".m3u8") ? "hls" : "mp4",
@@ -413,6 +518,8 @@ export function mountRichardflixDramas(router: Router): void {
           cover: meta?.cover || "",
           introduction: meta?.introduction || "",
           totalEpisodes: chapters.totalChapters,
+          seriesTotal: chapters.seriesTotal,
+          source: chapters.source,
           episodes: chapters.episodes.map(({ url: _u, ...rest }) => rest),
         },
       });
