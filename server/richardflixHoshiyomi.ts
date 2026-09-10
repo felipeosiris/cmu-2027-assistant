@@ -59,7 +59,7 @@ const PLATFORM_LABEL: Record<string, string> = {
 
 type CacheEntry = { body: unknown; expiresAt: number };
 const cache = new Map<string, CacheEntry>();
-const CACHE_MAX = 120;
+const CACHE_MAX = 200;
 
 export type TrialDramaCard = {
   id: string;
@@ -120,6 +120,15 @@ function isPlatform(p: string): p is HoshiyomiPlatform {
   return (HOSHIYOMI_PLATFORMS as readonly string[]).includes(p);
 }
 
+const HOSHI_HEADERS_JSON: Record<string, string> = {
+  Accept: "application/json, text/plain, */*",
+  // Cloudflare 1010 bloquea firmas tipo Python/curl vacías; Node a veces también.
+  "User-Agent":
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
+  Origin: "https://api.hoshiyomi.my.id",
+  Referer: "https://api.hoshiyomi.my.id/docs",
+};
+
 async function hoshiFetch(path: string): Promise<unknown> {
   const key = apiKey();
   if (!key) throw new Error("HOSHIYOMI_API_KEY no configurada");
@@ -127,8 +136,8 @@ async function hoshiFetch(path: string): Promise<unknown> {
   const url = `${HOSHIYOMI_BASE}${path.startsWith("/") ? path : `/${path}`}`;
   const res = await fetch(url, {
     headers: {
+      ...HOSHI_HEADERS_JSON,
       "X-API-Key": key,
-      Accept: "application/json",
     },
   });
   const text = await res.text();
@@ -143,6 +152,7 @@ async function hoshiFetch(path: string): Promise<unknown> {
     const msg =
       (typeof rec?.message === "string" && rec.message) ||
       (typeof rec?.error === "string" && rec.error) ||
+      (typeof rec?.detail === "string" && rec.detail) ||
       `HTTP ${res.status}`;
     const err = new Error(msg) as Error & { code?: string; status?: number };
     err.code = typeof rec?.error === "string" ? rec.error : undefined;
@@ -219,8 +229,9 @@ async function resolvePlayableUrl(rawUrl: string): Promise<string> {
   const key = apiKey();
   const res = await fetch(url, {
     headers: {
-      "X-API-Key": key,
+      ...HOSHI_HEADERS_JSON,
       Accept: "*/*",
+      "X-API-Key": key,
     },
   });
   if (!res.ok) {
@@ -286,46 +297,131 @@ function isSpanishDubTitle(title: string): boolean {
   return /\[\s*doblad[oa]\s*\]|\(\s*doblad[oa]\s*\)|\bdoblad[oa]\b|\bdublad[oa]\b/i.test(title);
 }
 
-/** Plataformas que mezclan original EN + doblaje: solo mostrar dobladas. */
-const DUB_FILTER_PROVIDERS = new Set<string>([
-  "dramaboxv2",
-  "shortmax",
-  "reelshort",
-  "melolo",
-  "moboreels",
-  "dramanova",
-  "goodshort",
-  "flickreels",
-  "netshort",
-  "idrama",
-]);
-
-function looksEnglishOnly(title: string): boolean {
-  if (/[áéíóúñ¿¡]/i.test(title)) return false;
-  if (isSpanishDubTitle(title)) return false;
-  // Títulos claramente EN sin marcador de doblaje
-  return /\b(the|with|who|my|love|king|queen|billionaire|wife|husband|secret)\b/i.test(title);
+function looksSpanishContent(title: string): boolean {
+  if (isSpanishDubTitle(title)) return true;
+  if (/[áéíóúñ¿¡]/i.test(title)) return true;
+  return /\b(el|la|los|las|un|una|mi|su|con|del|por|para|que|amor|rey|reina|esposa|marido|venganza|divorcio|genio|poderoso|gran)\b/i.test(
+    title,
+  );
 }
 
-export async function fetchTrialTrending(provider: HoshiyomiPlatform, lang = "es"): Promise<TrialDramaCard[]> {
-  const key = `hoshi:trending:${provider}:${lang}:dubv1`;
+function looksEnglishOnly(title: string): boolean {
+  if (looksSpanishContent(title)) return false;
+  return /\b(the|with|who|my|love|king|queen|billionaire|wife|husband|secret|after|before|when)\b/i.test(
+    title,
+  );
+}
+
+/** Preferir dobladas, pero aceptar títulos en español del feed lang=es. */
+function filterSpanishCatalog(items: TrialDramaCard[], provider: string): TrialDramaCard[] {
+  const spanish = items.filter((x) => looksSpanishContent(x.title) && !looksEnglishOnly(x.title));
+  const dubbed = spanish.filter((x) => isSpanishDubTitle(x.title));
+  // DramaBox / ShortMax mezclan mucho EN: si hay dobladas, priorizarlas; si no, español
+  if (provider === "dramaboxv2" || provider === "shortmax" || provider === "goodshort") {
+    if (dubbed.length >= 5) return dubbed;
+    return spanish.length ? spanish : dubbed;
+  }
+  return spanish.length ? spanish : items.filter((x) => !looksEnglishOnly(x.title));
+}
+
+function mergeCards(chunks: TrialDramaCard[][]): TrialDramaCard[] {
+  const seen = new Set<string>();
+  const out: TrialDramaCard[] = [];
+  for (const chunk of chunks) {
+    for (const item of chunk) {
+      const k = `${item.provider}:${item.id}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
+      out.push(item);
+    }
+  }
+  return out;
+}
+
+async function fetchProviderList(
+  provider: HoshiyomiPlatform,
+  pathWithQuery: string,
+): Promise<TrialDramaCard[]> {
+  try {
+    const raw = await hoshiFetch(`/api/${provider}/${pathWithQuery}`);
+    return listFromTrending(raw)
+      .map((x) => normalizeCard(x, provider))
+      .filter((x): x is TrialDramaCard => Boolean(x));
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/invalid action|404|not found|unavailable|500/i.test(msg)) return [];
+    console.warn(`[hoshiyomi] ${provider}/${pathWithQuery}:`, msg);
+    return [];
+  }
+}
+
+/** Catálogo ampliado: trending + foryou (páginas). */
+export async function fetchTrialCatalog(
+  provider: HoshiyomiPlatform,
+  lang = "es",
+): Promise<TrialDramaCard[]> {
+  const key = `hoshi:catalog:${provider}:${lang}:v2`;
   const hit = cacheGet<TrialDramaCard[]>(key);
   if (hit) return hit;
 
-  const raw = await hoshiFetch(`/api/${provider}/trending?lang=${encodeURIComponent(lang)}`);
-  let items = listFromTrending(raw)
-    .map((x) => normalizeCard(x, provider))
-    .filter((x): x is TrialDramaCard => Boolean(x));
+  const langQ = encodeURIComponent(lang);
+  const settled = await Promise.all([
+    fetchProviderList(provider, `trending?lang=${langQ}`),
+    fetchProviderList(provider, `foryou?page=1&lang=${langQ}`),
+    fetchProviderList(provider, `foryou?page=2&lang=${langQ}`),
+    fetchProviderList(provider, `foryou?page=3&lang=${langQ}`),
+  ]);
 
-  if (DUB_FILTER_PROVIDERS.has(provider)) {
-    const dubbed = items.filter((x) => isSpanishDubTitle(x.title));
-    // Sin marcador "Doblado" no asumimos audio ES (suelen ser subtítulos)
-    items = dubbed;
-  } else {
-    items = items.filter((x) => !looksEnglishOnly(x.title));
-  }
+  const items = filterSpanishCatalog(mergeCards(settled), provider);
+  cacheSet(key, items, 25 * 60 * 1000);
+  return items;
+}
 
-  cacheSet(key, items, 30 * 60 * 1000);
+/** @deprecated use fetchTrialCatalog */
+export async function fetchTrialTrending(provider: HoshiyomiPlatform, lang = "es"): Promise<TrialDramaCard[]> {
+  return fetchTrialCatalog(provider, lang);
+}
+
+export async function searchTrialDramas(
+  q: string,
+  lang = "es",
+): Promise<TrialDramaCard[]> {
+  const needle = q.trim();
+  if (needle.length < 2) return [];
+  const cacheKey = `hoshi:search:${lang}:${needle.toLowerCase()}`;
+  const hit = cacheGet<TrialDramaCard[]>(cacheKey);
+  if (hit) return hit;
+
+  const providers: HoshiyomiPlatform[] = [
+    "reelshort",
+    "shortmax",
+    "pinedrama",
+    "goodshort",
+    "dramaboxv2",
+    "netshort",
+    "idrama",
+    "flickreels",
+    "stardusttv",
+  ];
+  const qEnc = encodeURIComponent(needle);
+  const langQ = encodeURIComponent(lang);
+
+  const settled = await Promise.all(
+    providers.map(async (provider) => {
+      // Docs: query= ; varios aceptan q=
+      let items = await fetchProviderList(provider, `search?q=${qEnc}&lang=${langQ}`);
+      if (!items.length) {
+        items = await fetchProviderList(provider, `search?query=${qEnc}&lang=${langQ}`);
+      }
+      if (!items.length) {
+        items = await fetchProviderList(provider, `search?keyword=${qEnc}&lang=${langQ}`);
+      }
+      return filterSpanishCatalog(items, provider);
+    }),
+  );
+
+  const items = mergeCards(settled);
+  cacheSet(cacheKey, items, 10 * 60 * 1000);
   return items;
 }
 
@@ -337,11 +433,10 @@ export async function fetchTrialHome(lang = "es"): Promise<{
     return { rows: [], hasKey: false };
   }
 
-  const cacheKey = `hoshi:home:es-dub:${lang}`;
+  const cacheKey = `hoshi:home:catalog-v2:${lang}`;
   const hit = cacheGet<{ rows: Array<{ provider: string; label: string; items: TrialDramaCard[] }> }>(cacheKey);
   if (hit) return { ...hit, hasKey: true };
 
-  // Primero plataformas que en trial sonaban en español; dobladas premium después
   const preferred: HoshiyomiPlatform[] = [
     "pinedrama",
     "stardusttv",
@@ -356,7 +451,7 @@ export async function fetchTrialHome(lang = "es"): Promise<{
 
   const settled = await Promise.allSettled(
     preferred.map(async (provider) => {
-      const items = await fetchTrialTrending(provider, lang);
+      const items = await fetchTrialCatalog(provider, lang);
       return {
         provider,
         label: PLATFORM_LABEL[provider] || provider,
@@ -370,12 +465,12 @@ export async function fetchTrialHome(lang = "es"): Promise<{
     if (r.status === "fulfilled" && r.value.items.length) {
       rows.push(r.value);
     } else if (r.status === "rejected") {
-      console.warn(`[hoshiyomi] trending:`, r.reason instanceof Error ? r.reason.message : r.reason);
+      console.warn(`[hoshiyomi] catalog:`, r.reason instanceof Error ? r.reason.message : r.reason);
     }
   }
 
   const body = { rows };
-  cacheSet(cacheKey, body, 20 * 60 * 1000);
+  cacheSet(cacheKey, body, 15 * 60 * 1000);
   return { ...body, hasKey: true };
 }
 
@@ -504,6 +599,25 @@ export function mountRichardflixHoshiyomi(router: Router): void {
       res.status(502).json({
         success: false,
         error: e instanceof Error ? e.message : "trial home error",
+      });
+    }
+  });
+
+  router.get("/dramas/trial/search", async (req: Request, res: Response) => {
+    try {
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      const lang = typeof req.query.lang === "string" ? req.query.lang : "es";
+      if (q.trim().length < 2) {
+        res.status(400).json({ success: false, error: "q requiere al menos 2 caracteres" });
+        return;
+      }
+      const items = await searchTrialDramas(q, lang);
+      res.setHeader("Cache-Control", "public, max-age=60");
+      res.json({ success: true, q, language: lang, total: items.length, items });
+    } catch (e) {
+      res.status(502).json({
+        success: false,
+        error: e instanceof Error ? e.message : "trial search error",
       });
     }
   });
