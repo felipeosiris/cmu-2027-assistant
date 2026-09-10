@@ -26,6 +26,8 @@ services:
         value: es-MX-DaliaNeural
       - key: CMU_AGENT_RUNTIME
         value: cloud
+      - key: HOSHIYOMI_API_KEY
+        sync: false
 
   # Backend aparte RichardFlix Deportes (proxy SportSRC + caché)
   - type: web
@@ -44,4 +46,6 @@ services:
       - key: PORT
         value: "10000"
       - key: SPORTSRC_API_KEY
+        sync: false
+      - key: HOSHIYOMI_API_KEY
         sync: false

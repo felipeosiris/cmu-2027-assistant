@@ -36,6 +36,10 @@ app.get("/", (_req, res) => {
       "GET /rf/dramas/:id",
       "GET /rf/dramas/:id/episodes",
       "GET /rf/dramas/:id/stream?ep=1",
+      "GET /rf/dramas/trial/home",
+      "GET /rf/dramas/trial/:provider/trending",
+      "GET /rf/dramas/trial/:provider/:id",
+      "GET /rf/dramas/trial/:provider/:id/stream?ep=1",
     ],
   });
 });
