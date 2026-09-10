@@ -282,15 +282,35 @@ function normalizeEpisodes(raw: unknown): TrialEpisode[] {
   return mapped.sort((a, b) => a.episode - b.episode);
 }
 
+function isSpanishDubTitle(title: string): boolean {
+  return /\[\s*doblad[oa]\s*\]|\(\s*doblad[oa]\s*\)|\bdoblad[oa]\b|\bdublad[oa]\b/i.test(title);
+}
+
+/** Plataformas que mezclan original EN + doblaje: solo mostrar dobladas. */
+const DUB_FILTER_PROVIDERS = new Set<string>([
+  "dramaboxv2",
+  "shortmax",
+  "reelshort",
+  "melolo",
+  "moboreels",
+  "dramanova",
+]);
+
 export async function fetchTrialTrending(provider: HoshiyomiPlatform, lang = "es"): Promise<TrialDramaCard[]> {
-  const key = `hoshi:trending:${provider}:${lang}`;
+  const key = `hoshi:trending:${provider}:${lang}:dubv1`;
   const hit = cacheGet<TrialDramaCard[]>(key);
   if (hit) return hit;
 
   const raw = await hoshiFetch(`/api/${provider}/trending?lang=${encodeURIComponent(lang)}`);
-  const items = listFromTrending(raw)
+  let items = listFromTrending(raw)
     .map((x) => normalizeCard(x, provider))
     .filter((x): x is TrialDramaCard => Boolean(x));
+
+  if (DUB_FILTER_PROVIDERS.has(provider)) {
+    const dubbed = items.filter((x) => isSpanishDubTitle(x.title));
+    if (dubbed.length) items = dubbed;
+  }
+
   cacheSet(key, items, 30 * 60 * 1000);
   return items;
 }
@@ -303,22 +323,22 @@ export async function fetchTrialHome(lang = "es"): Promise<{
     return { rows: [], hasKey: false };
   }
 
-  const cacheKey = `hoshi:home:pre:${lang}`;
+  const cacheKey = `hoshi:home:es-dub:${lang}`;
   const hit = cacheGet<{ rows: Array<{ provider: string; label: string; items: TrialDramaCard[] }> }>(cacheKey);
   if (hit) return { ...hit, hasKey: true };
 
-  // PRE: 500 RPM — varias plataformas en paralelo; DramaBox primero
+  // Primero plataformas que en trial sonaban en español; dobladas premium después
   const preferred: HoshiyomiPlatform[] = [
-    "dramaboxv2",
     "pinedrama",
     "netshort",
-    "reelshort",
-    "shortmax",
     "idrama",
     "stardusttv",
     "flickreels",
+    "freereels",
     "goodshort",
-    "melolo",
+    "shortmax",
+    "dramaboxv2",
+    "reelshort",
   ];
 
   const settled = await Promise.allSettled(
