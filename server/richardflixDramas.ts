@@ -23,6 +23,7 @@ type DramaEpisode = {
   name: string;
   quality?: number;
   url?: string;
+  locked?: boolean;
 };
 
 type VideoPath = {
@@ -230,6 +231,171 @@ async function loadHomepage(): Promise<{
   return body;
 }
 
+const BATCH_LOAD = "/drama-box/chapterv2/batch/load";
+const CHAPTER_DETAIL = "/drama-box/chapterv2/detail";
+
+function pickFreeFromChapter(ch: ChapterRaw): { url: string; quality: number } | null {
+  const fromCdn = pickBestVideo(ch);
+  if (fromCdn) return fromCdn;
+  if (typeof ch.videoPath === "string" && ch.videoPath.startsWith("http")) {
+    return { url: ch.videoPath, quality: 720 };
+  }
+  return null;
+}
+
+function isValidWindow(indexes: number[], requestedIndex: number): boolean {
+  if (!indexes.length) return false;
+  // Cuando el muro VIP cae, DramaBox devuelve basura tipo [0,1] aunque pedimos index>=21
+  if (requestedIndex > 6 && indexes[0] === 0 && indexes.length <= 2) return false;
+  return true;
+}
+
+/** Catálogo completo (52…) sin URLs — endpoint detail. */
+async function loadFullCatalog(bookId: string): Promise<{
+  episodes: DramaEpisode[];
+  seriesTotal: number;
+}> {
+  const client = getClient();
+  let seedChapterId = "";
+  try {
+    const seed = await client.getChapters(bookId);
+    const first = (asRecord(seed?.data)?.chapters as ChapterRaw[] | undefined)?.[0];
+    seedChapterId = first?.chapterId != null ? String(first.chapterId) : "";
+  } catch {
+    /* ignore */
+  }
+
+  const payload: Record<string, unknown> = {
+    needRecommend: false,
+    from: "player",
+    bookId,
+  };
+  if (seedChapterId) payload.chapterId = seedChapterId;
+
+  const data = await client.sapiRequest(CHAPTER_DETAIL, payload);
+  const rawList = (asRecord(data)?.data as { list?: unknown } | undefined)?.list;
+  const list = Array.isArray(rawList) ? (rawList as ChapterRaw[]) : [];
+
+  const episodes = list
+    .map((ch, i) => {
+      const index = typeof ch.chapterIndex === "number" ? ch.chapterIndex : i;
+      return {
+        index,
+        episode: index + 1,
+        chapterId: String(ch.chapterId ?? ""),
+        name: (ch.chapterName || `Episodio ${index + 1}`).trim(),
+        locked: true,
+      } satisfies DramaEpisode;
+    })
+    .sort((a, b) => a.index - b.index);
+
+  return { episodes, seriesTotal: episodes.length };
+}
+
+/** Ventana deslizante batch/load — desbloquea ~20 gratis aunque isCharge=1. */
+async function deepUnlockUrls(
+  bookId: string,
+  opts?: { aggressive?: boolean },
+): Promise<Map<number, { url: string; quality: number; chapterId?: string; name?: string }>> {
+  const client = getClient();
+  const found = new Map<number, { url: string; quality: number; chapterId?: string; name?: string }>();
+  let seriesTotal = 0;
+
+  const indexes: number[] = [1];
+  const step = opts?.aggressive ? 3 : 5;
+  for (let i = 1 + step; i <= 80; i += step) indexes.push(i);
+  if (opts?.aggressive) {
+    for (let i = 2; i <= 30; i++) {
+      if (!indexes.includes(i)) indexes.push(i);
+    }
+    indexes.sort((a, b) => a - b);
+  }
+
+  for (const index of indexes) {
+    if (seriesTotal && index > seriesTotal + 1) break;
+    try {
+      const data = await client.sapiRequest(BATCH_LOAD, {
+        boundaryIndex: 0,
+        comingPlaySectionId: -1,
+        index,
+        currencyPlaySourceName: "首页发现_Untukmu_推荐列表",
+        rid: "",
+        enterReaderChapterIndex: Math.max(0, index - 1),
+        loadDirection: 1,
+        startUpKey: "10942710-5e9e-48f2-8927-7c387e6f5fac",
+        bookId,
+        currencyPlaySource: "discover_175_rec",
+        needEndRecommend: 0,
+        preLoad: false,
+        pullCid: "",
+      });
+      const body = asRecord(asRecord(data)?.data) || {};
+      seriesTotal = Number(body.chapterCount) || seriesTotal;
+      const list = Array.isArray(body.chapterList) ? (body.chapterList as ChapterRaw[]) : [];
+      const idxs = list.map((c) => (typeof c.chapterIndex === "number" ? c.chapterIndex : -1));
+      if (!isValidWindow(idxs, index)) break;
+
+      for (const ch of list) {
+        const video = pickFreeFromChapter(ch);
+        if (!video) continue;
+        const idx = typeof ch.chapterIndex === "number" ? ch.chapterIndex : -1;
+        if (idx < 0 || found.has(idx)) continue;
+        found.set(idx, {
+          url: video.url,
+          quality: video.quality,
+          chapterId: ch.chapterId != null ? String(ch.chapterId) : undefined,
+          name: ch.chapterName,
+        });
+      }
+    } catch {
+      break;
+    }
+  }
+
+  return found;
+}
+
+function mergeCatalogWithUrls(
+  catalog: DramaEpisode[],
+  urls: Map<number, { url: string; quality: number; chapterId?: string; name?: string }>,
+  seriesTotalHint: number,
+): DramaEpisode[] {
+  const byIndex = new Map<number, DramaEpisode>();
+  for (const ep of catalog) byIndex.set(ep.index, { ...ep });
+
+  for (const [index, video] of urls) {
+    const prev = byIndex.get(index);
+    byIndex.set(index, {
+      index,
+      episode: index + 1,
+      chapterId: video.chapterId || prev?.chapterId || "",
+      name: video.name || prev?.name || `Episodio ${index + 1}`,
+      quality: video.quality,
+      url: video.url,
+      locked: false,
+    });
+  }
+
+  // Rellenar huecos 0..seriesTotal-1 si el catálogo vino corto
+  const knownMax = byIndex.size ? Math.max(...byIndex.keys()) : -1;
+  const maxIndex = Math.max(seriesTotalHint - 1, knownMax, -1);
+  for (let i = 0; i <= maxIndex; i++) {
+    if (!byIndex.has(i)) {
+      byIndex.set(i, {
+        index: i,
+        episode: i + 1,
+        chapterId: "",
+        name: `Episodio ${i + 1}`,
+        locked: true,
+      });
+    } else if (!byIndex.get(i)?.url) {
+      byIndex.set(i, { ...byIndex.get(i)!, locked: true });
+    }
+  }
+
+  return [...byIndex.values()].sort((a, b) => a.index - b.index);
+}
+
 async function loadChaptersFromList(bookId: string): Promise<{
   bookId: string;
   totalChapters: number;
@@ -239,7 +405,10 @@ async function loadChaptersFromList(bookId: string): Promise<{
   const res = await getClient().getChapters(bookId);
   const data = asRecord(res?.data) || {};
   const chapters = Array.isArray(data.chapters) ? (data.chapters as ChapterRaw[]) : [];
-  const episodes = normalizeEpisodes(chapters);
+  const episodes = normalizeEpisodes(chapters).map((ep) => ({
+    ...ep,
+    locked: !ep.url,
+  }));
   return {
     bookId: String(data.bookId || bookId),
     totalChapters: Number(data.totalChapters) || episodes.length,
@@ -248,110 +417,157 @@ async function loadChaptersFromList(bookId: string): Promise<{
   };
 }
 
-/** Prefer batchDownload: desbloquea más episodios que el free tier de getChapters (~6). */
-async function loadChapters(bookId: string): Promise<{
+type LoadedChapters = {
   bookId: string;
   totalChapters: number;
+  available: number;
   seriesTotal: number;
   episodes: DramaEpisode[];
-  source: "batch" | "chapters";
-}> {
-  const key = `dramas:batch:${bookId}`;
-  const hit = cacheGet<{
-    bookId: string;
-    totalChapters: number;
-    seriesTotal: number;
-    episodes: DramaEpisode[];
-    source: "batch" | "chapters";
-  }>(key);
-  if (hit) return hit;
+  source: "deep" | "batch" | "chapters";
+};
 
-  const [listSettled, batchSettled] = await Promise.allSettled([
-    loadChaptersFromList(bookId),
+/** Catálogo completo + URLs desbloqueables (deep crawl / batch). */
+async function loadChapters(bookId: string, opts?: { force?: boolean; aggressive?: boolean }): Promise<LoadedChapters> {
+  const key = `dramas:full:${bookId}`;
+  if (!opts?.force) {
+    const hit = cacheGet<LoadedChapters>(key);
+    if (hit) return hit;
+  }
+
+  const [catalogSettled, unlockSettled, batchSettled] = await Promise.allSettled([
+    loadFullCatalog(bookId),
+    deepUnlockUrls(bookId, { aggressive: opts?.aggressive }),
     getClient().batchDownload(bookId),
   ]);
 
-  const list =
-    listSettled.status === "fulfilled"
-      ? listSettled.value
-      : null;
-  const seriesTotalHint = list?.totalChapters || list?.episodes.length || 0;
+  const catalog =
+    catalogSettled.status === "fulfilled"
+      ? catalogSettled.value
+      : { episodes: [] as DramaEpisode[], seriesTotal: 0 };
+
+  const urlMap = new Map<number, { url: string; quality: number; chapterId?: string; name?: string }>();
+
+  if (unlockSettled.status === "fulfilled") {
+    for (const [k, v] of unlockSettled.value) urlMap.set(k, v);
+  }
 
   if (batchSettled.status === "fulfilled") {
     const data = asRecord(batchSettled.value?.data) || {};
-    const episodes = normalizeBatchEpisodes(data.episodes);
-    if (episodes.length > 0) {
-      const body = {
-        bookId: String(data.bookId || bookId),
-        totalChapters: episodes.length,
-        seriesTotal: Math.max(seriesTotalHint, Number(data.totalEpisodes) || 0, episodes.length),
-        episodes,
-        source: "batch" as const,
-      };
-      cacheSet(key, body, 20 * 60 * 1000);
-      return body;
+    for (const ep of normalizeBatchEpisodes(data.episodes)) {
+      if (!ep.url || urlMap.has(ep.index)) continue;
+      urlMap.set(ep.index, {
+        url: ep.url,
+        quality: ep.quality || 720,
+        chapterId: ep.chapterId,
+        name: ep.name,
+      });
     }
   }
 
-  if (list && list.episodes.length > 0) {
-    const body = {
-      bookId: list.bookId,
-      totalChapters: list.episodes.length,
-      seriesTotal: Math.max(seriesTotalHint, list.totalChapters, list.episodes.length),
-      episodes: list.episodes,
-      source: "chapters" as const,
-    };
-    cacheSet(key, body, 10 * 60 * 1000);
-    return body;
+  let episodes = mergeCatalogWithUrls(catalog.episodes, urlMap, catalog.seriesTotal);
+  let seriesTotal = Math.max(catalog.seriesTotal, episodes.length);
+  let source: LoadedChapters["source"] = urlMap.size ? "deep" : "chapters";
+
+  if (episodes.length === 0) {
+    const fallback = await loadChaptersFromList(bookId);
+    episodes = fallback.episodes;
+    seriesTotal = Math.max(fallback.totalChapters, episodes.length);
+    source = "chapters";
   }
 
-  throw new Error(
-    batchSettled.status === "rejected"
-      ? batchSettled.reason instanceof Error
-        ? batchSettled.reason.message
-        : "batchDownload falló"
-      : "Sin episodios disponibles",
-  );
+  const available = episodes.filter((e) => e.url && !e.locked).length;
+  const body: LoadedChapters = {
+    bookId,
+    totalChapters: available,
+    available,
+    seriesTotal,
+    episodes,
+    source,
+  };
+  cacheSet(key, body, 20 * 60 * 1000);
+  return body;
 }
 
 async function resolveStreamUrl(bookId: string, episode: number): Promise<{
   url: string;
   quality: number;
-  source: "batch" | "chapters" | "stream";
+  source: "deep" | "batch" | "chapters" | "stream" | "ondemand";
   allEps: number;
   seriesTotal: number;
+  locked?: boolean;
 }> {
   const chapters = await loadChapters(bookId);
-  const ep = chapters.episodes.find((e) => e.episode === episode) || chapters.episodes[episode - 1];
+  const ep = chapters.episodes.find((e) => e.episode === episode);
   if (ep?.url) {
     return {
       url: ep.url,
       quality: ep.quality || 0,
       source: chapters.source,
-      allEps: chapters.totalChapters,
+      allEps: chapters.available,
       seriesTotal: chapters.seriesTotal,
     };
   }
 
-  // Fallback: API de stream (índice 0-based en el cliente npm)
-  const streamRes = await getClient().getStreamUrl(bookId, Math.max(0, episode - 1));
-  const outer = asRecord(streamRes?.data);
-  const inner = asRecord(outer?.data) || outer;
-  const chapter = asRecord(inner?.chapter);
-  const video = asRecord(chapter?.video);
-  const mp4 = typeof video?.mp4 === "string" ? video.mp4 : "";
-  const m3u8 = typeof video?.m3u8 === "string" ? video.m3u8 : "";
-  const url = mp4 || m3u8;
-  if (!url) {
-    throw new Error("Sin URL de reproducción para este episodio");
+  // On-demand: una ventana batch centrada en ese episodio
+  try {
+    const data = await getClient().sapiRequest(BATCH_LOAD, {
+      boundaryIndex: 0,
+      comingPlaySectionId: -1,
+      index: episode,
+      currencyPlaySourceName: "首页发现_Untukmu_推荐列表",
+      rid: "",
+      enterReaderChapterIndex: Math.max(0, episode - 1),
+      loadDirection: 1,
+      startUpKey: "10942710-5e9e-48f2-8927-7c387e6f5fac",
+      bookId,
+      currencyPlaySource: "discover_175_rec",
+      needEndRecommend: 0,
+      preLoad: false,
+      pullCid: ep?.chapterId || "",
+    });
+    const body = asRecord(asRecord(data)?.data) || {};
+    const list = Array.isArray(body.chapterList) ? (body.chapterList as ChapterRaw[]) : [];
+    const idxs = list.map((c) => (typeof c.chapterIndex === "number" ? c.chapterIndex : -1));
+    if (isValidWindow(idxs, episode)) {
+      const hit = list.find((c) => c.chapterIndex === episode - 1);
+      const video = hit ? pickFreeFromChapter(hit) : null;
+      if (video) {
+        // refrescar caché con este capítulo
+        const key = `dramas:full:${bookId}`;
+        const cached = cacheGet<LoadedChapters>(key);
+        if (cached) {
+          const next = cached.episodes.map((e) =>
+            e.episode === episode
+              ? { ...e, url: video.url, quality: video.quality, locked: false }
+              : e,
+          );
+          const available = next.filter((e) => e.url && !e.locked).length;
+          cacheSet(key, { ...cached, episodes: next, available, totalChapters: available }, 20 * 60 * 1000);
+        }
+        return {
+          url: video.url,
+          quality: video.quality,
+          source: "ondemand",
+          allEps: chapters.available + 1,
+          seriesTotal: chapters.seriesTotal,
+        };
+      }
+    }
+  } catch {
+    /* ignore */
   }
-  return {
-    url,
-    quality: 0,
-    source: "stream",
-    allEps: Number(inner?.allEps) || chapters.totalChapters,
-    seriesTotal: chapters.seriesTotal,
-  };
+
+  if (ep?.locked) {
+    const err = new Error("Episodio bloqueado por DramaBox (requiere VIP)");
+    (err as Error & { code?: string }).code = "LOCKED";
+    throw err;
+  }
+
+  throw new Error("Sin URL de reproducción para este episodio");
+}
+
+function cacheDelete(key: string): void {
+  cache.delete(key);
 }
 
 function findCardMeta(id: string, pools: DramaCard[][]): DramaCard | null {
@@ -450,7 +666,8 @@ export function mountRichardflixDramas(router: Router): void {
       res.json({
         success: true,
         bookId: data.bookId,
-        total: data.totalChapters,
+        total: data.available,
+        available: data.available,
         seriesTotal: data.seriesTotal,
         source: data.source,
         episodes: data.episodes.map(({ url: _u, ...rest }) => rest),
@@ -459,6 +676,36 @@ export function mountRichardflixDramas(router: Router): void {
       res.status(502).json({
         success: false,
         error: e instanceof Error ? e.message : "dramas episodes error",
+      });
+    }
+  });
+
+  router.post("/dramas/:id/expand", async (req: Request, res: Response) => {
+    const id = String(req.params.id || "").trim();
+    if (!id) {
+      res.status(400).json({ success: false, error: "id requerido" });
+      return;
+    }
+    try {
+      cacheDelete(`dramas:full:${id}`);
+      const before = await loadChapters(id, { force: true, aggressive: true });
+      res.json({
+        success: true,
+        bookId: id,
+        available: before.available,
+        seriesTotal: before.seriesTotal,
+        source: before.source,
+        gained: before.available,
+        episodes: before.episodes.map(({ url: _u, ...rest }) => rest),
+        message:
+          before.available >= before.seriesTotal
+            ? "Todos los episodios disponibles están desbloqueados."
+            : `Se desbloquearon ${before.available} de ${before.seriesTotal}. El resto sigue en VIP de DramaBox.`,
+      });
+    } catch (e) {
+      res.status(502).json({
+        success: false,
+        error: e instanceof Error ? e.message : "dramas expand error",
       });
     }
   });
@@ -485,9 +732,12 @@ export function mountRichardflixDramas(router: Router): void {
         url: stream.url,
       });
     } catch (e) {
-      res.status(502).json({
+      const msg = e instanceof Error ? e.message : "dramas stream error";
+      const locked = (e as Error & { code?: string })?.code === "LOCKED" || /bloqueado/i.test(msg);
+      res.status(locked ? 423 : 502).json({
         success: false,
-        error: e instanceof Error ? e.message : "dramas stream error",
+        locked,
+        error: msg,
       });
     }
   });
@@ -517,7 +767,8 @@ export function mountRichardflixDramas(router: Router): void {
           title: meta?.title || `Drama ${id}`,
           cover: meta?.cover || "",
           introduction: meta?.introduction || "",
-          totalEpisodes: chapters.totalChapters,
+          totalEpisodes: chapters.available,
+          available: chapters.available,
           seriesTotal: chapters.seriesTotal,
           source: chapters.source,
           episodes: chapters.episodes.map(({ url: _u, ...rest }) => rest),
