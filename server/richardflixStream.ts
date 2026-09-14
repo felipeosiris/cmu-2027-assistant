@@ -1,6 +1,5 @@
 /**
- * RichardFlix VOD — Spectre: extracción directa m3u8/mp4 (sin iframe/ads).
- * Direct-or-Nothing: nunca devuelve mode=embed en el happy path.
+ * RichardFlix VOD — resuelve m3u8/mp4 nativo cuando se puede; si no, embed del host.
  */
 import type { Request, Router } from "express";
 
@@ -38,7 +37,7 @@ const HOST_PRIORITY = [
   "goodstream",
 ] as const;
 
-/** Hosts que casi siempre son iframe con ads → último recurso / excluidos de Spectre race. */
+/** Hosts que casi siempre son iframe con ads → último recurso. */
 const IFRAME_ONLY_HOSTS = new Set([
   "doodstream",
   "dood",
@@ -48,34 +47,12 @@ const IFRAME_ONLY_HOSTS = new Set([
   "vidsrc",
 ]);
 
-const SPECTRE_RACE_SIZE = 5;
-const SPECTRE_TIMEOUT_MS = 3500;
-
-/** Historial en memoria: host → éxitos recientes (para priorizar). */
-const hostWins = new Map<string, number>();
-
 function hostBase(name: string): string {
   return name.toLowerCase().replace(/[\s_-]+\d+$/, "").trim();
 }
 
 function isIframeOnlyHost(name: string): boolean {
   return IFRAME_ONLY_HOSTS.has(hostBase(name));
-}
-
-function spectreScore(host: string): number {
-  const base = hostBase(host);
-  if (base === "direct") return 1000;
-  if (base === "remux") return 950;
-  const wins = hostWins.get(base) || 0;
-  const priorityIdx = HOST_PRIORITY.findIndex((h) => hostBase(h) === base);
-  const priorityBoost = priorityIdx >= 0 ? 80 - priorityIdx : 0;
-  if (isIframeOnlyHost(host)) return -100 + wins;
-  return 100 + wins * 10 + priorityBoost;
-}
-
-function noteHostWin(host: string): void {
-  const base = hostBase(host);
-  hostWins.set(base, (hostWins.get(base) || 0) + 1);
 }
 
 type EmbedsMap = Record<string, Record<string, string>>;
@@ -201,6 +178,34 @@ function pickTrack(embeds: EmbedsMap, lang: StreamLang): Record<string, string> 
   return null;
 }
 
+function fallbackVidSrc(opts: {
+  type: StreamMediaType;
+  tmdbId: number;
+  season?: number;
+  episode?: number;
+  lang: StreamLang;
+}): { mode: "embed"; url: string; referer: string; host: string; lang: StreamLang } {
+  const ds = opts.lang === "subtitulado" ? "en" : "es";
+  if (opts.type === "tv") {
+    const s = opts.season ?? 1;
+    const e = opts.episode ?? 1;
+    return {
+      mode: "embed",
+      url: `https://vidsrc.to/embed/tv/${opts.tmdbId}/${s}/${e}?ds_lang=${ds}&autoplay=1`,
+      referer: "https://vidsrc.to/",
+      host: "vidsrc",
+      lang: opts.lang,
+    };
+  }
+  return {
+    mode: "embed",
+    url: `https://vidsrc.to/embed/movie/${opts.tmdbId}?ds_lang=${ds}&autoplay=1`,
+    referer: "https://vidsrc.to/",
+    host: "vidsrc",
+    lang: opts.lang,
+  };
+}
+
 function embedReferer(opts: {
   type: StreamMediaType;
   tmdbId: number;
@@ -219,6 +224,7 @@ async function fetchText(url: string, referer: string): Promise<{ text: string; 
       "Accept-Language": "es-MX,es;q=0.9",
     },
     redirect: "follow",
+    signal: AbortSignal.timeout(12000),
   });
   const text = await res.text();
   return { text, finalUrl: res.url, status: res.status };
@@ -431,7 +437,7 @@ async function resolveAjaxFileHost(embedUrl: string, referer: string): Promise<s
           "Content-Type": "application/x-www-form-urlencoded",
         },
         body: `id=${encodeURIComponent(fileCode)}`,
-        signal: AbortSignal.timeout(SPECTRE_TIMEOUT_MS),
+        signal: AbortSignal.timeout(8000),
       });
       const body = await res.text();
       if (looksLikeAdPayload(body)) continue;
@@ -562,10 +568,6 @@ async function resolveHostStream(
 
   if (host === "direct") {
     const unwrapped = unwrapNested(embedUrl);
-    if (unwrapped?.kind === "hls") {
-      if (await isReachablePlaylist(unwrapped.streamUrl, referer)) return unwrapped;
-      return unwrapped;
-    }
     if (unwrapped) return unwrapped;
 
     try {
@@ -649,128 +651,6 @@ function packResolved(
   };
 }
 
-type SpectreCandidate = {
-  host: string;
-  embedUrl: string;
-  lang: StreamLang;
-  score: number;
-};
-
-type SpectreHit = {
-  host: string;
-  lang: StreamLang;
-  streamUrl: string;
-  kind: "hls" | "mp4";
-};
-
-function collectSpectreCandidates(
-  embeds: EmbedsMap,
-  preferredLang: StreamLang,
-  hostIndex: number,
-): SpectreCandidate[] {
-  const langs = orderedLangs(preferredLang, embeds);
-  const out: SpectreCandidate[] = [];
-  const seen = new Set<string>();
-
-  for (const lang of langs) {
-    const track = embeds[lang] || pickTrack(embeds, lang);
-    if (!track) continue;
-
-    const ordered = HOST_PRIORITY.filter((h) => track[h]).map((h) => [h, track[h]] as const);
-    const extras = Object.entries(track).filter(
-      ([h]) => h !== "searched_names" && !HOST_PRIORITY.includes(h as (typeof HOST_PRIORITY)[number]),
-    );
-    for (const [host, embedUrl] of [...ordered, ...extras]) {
-      if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
-      if (isIframeOnlyHost(host)) continue;
-      const key = `${lang}|${host}|${embedUrl}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      out.push({ host, embedUrl, lang, score: spectreScore(host) });
-    }
-  }
-
-  out.sort((a, b) => b.score - a.score);
-  // hostIndex: rotar ventana (cliente pide siguiente fuente limpia)
-  if (hostIndex > 0 && hostIndex < out.length) {
-    return [...out.slice(hostIndex), ...out.slice(0, hostIndex)];
-  }
-  return out;
-}
-
-async function spectreTryOne(
-  candidate: SpectreCandidate,
-  referer: string,
-  signal: AbortSignal,
-): Promise<SpectreHit | null> {
-  if (signal.aborted) return null;
-  try {
-    const { streamUrl, kind } = await Promise.race([
-      resolveHostStream(candidate.host, candidate.embedUrl, referer),
-      new Promise<{ streamUrl: null; kind: "embed" }>((resolve) => {
-        const t = setTimeout(() => resolve({ streamUrl: null, kind: "embed" }), SPECTRE_TIMEOUT_MS);
-        signal.addEventListener("abort", () => {
-          clearTimeout(t);
-          resolve({ streamUrl: null, kind: "embed" });
-        });
-      }),
-    ]);
-    if (signal.aborted || !streamUrl || (kind !== "hls" && kind !== "mp4")) return null;
-
-    const ok =
-      kind === "hls"
-        ? await isReachablePlaylist(streamUrl, referer)
-        : await validateStream(streamUrl, referer);
-    // HLS a veces falla el probe por CDN pero igual reproduce vía proxy
-    if (!ok && kind === "mp4") return null;
-    if (!ok && kind === "hls") {
-      return { host: candidate.host, lang: candidate.lang, streamUrl, kind };
-    }
-    return { host: candidate.host, lang: candidate.lang, streamUrl, kind };
-  } catch {
-    return null;
-  }
-}
-
-/** Carrera paralela: gana el primer m3u8/mp4 validado. */
-async function spectreRace(
-  candidates: SpectreCandidate[],
-  referer: string,
-): Promise<SpectreHit | null> {
-  const batch = candidates.slice(0, SPECTRE_RACE_SIZE);
-  if (!batch.length) return null;
-
-  const ac = new AbortController();
-  const pending = batch.map((c) => spectreTryOne(c, referer, ac.signal));
-
-  return new Promise((resolve) => {
-    let remaining = pending.length;
-    let settled = false;
-    for (const p of pending) {
-      void p.then((hit) => {
-        if (settled) return;
-        if (hit) {
-          settled = true;
-          ac.abort();
-          resolve(hit);
-          return;
-        }
-        remaining -= 1;
-        if (remaining <= 0) {
-          settled = true;
-          resolve(null);
-        }
-      });
-    }
-  });
-}
-
-/**
- * Spectre Direct-or-Nothing:
- * - Race paralelo de hosts extractables
- * - Multi-idioma
- * - Nunca retorna iframe/embed (sin ads de player)
- */
 export async function resolvePlayableStream(
   req: Request,
   opts: {
@@ -781,65 +661,100 @@ export async function resolvePlayableStream(
     lang: StreamLang;
     hostIndex?: number;
   },
-): Promise<(ResolvedStream & { algorithm: "spectre" }) | null> {
+): Promise<ResolvedStream | { mode: "embed"; url: string; referer: string; host: string; lang: StreamLang } | null> {
   const embeds = await fetchUnlimEmbeds(opts);
-  if (!embeds) return null;
+  if (!embeds) {
+    return fallbackVidSrc(opts);
+  }
 
+  const langs = orderedLangs(opts.lang, embeds);
   const referer = embedReferer(opts);
   const idx = Math.max(0, opts.hostIndex ?? 0);
-  const candidates = collectSpectreCandidates(embeds, opts.lang, idx);
-  if (!candidates.length) return null;
 
-  // Atajo nativo: direct/remux al inicio de la lista
-  for (const c of candidates.slice(0, 4)) {
-    if (c.host !== "direct" && c.host !== "remux") continue;
-    const hit = await spectreTryOne(c, referer, new AbortController().signal);
-    if (hit) {
-      noteHostWin(hit.host);
-      return {
-        ...packResolved(hit.streamUrl, hit.kind, referer, hit.host, hit.lang, true, req),
-        algorithm: "spectre",
-      };
+  // Preferir native en el primer intento. Si hostIndex>0 el cliente ya falló direct/remux.
+  if (idx === 0) {
+    for (const lang of langs) {
+      const track = embeds[lang] || pickTrack(embeds, lang);
+      if (!track) continue;
+      const direct = track.direct;
+      if (typeof direct === "string" && direct.includes(".m3u8")) {
+        const { streamUrl, kind } = await resolveHostStream("direct", direct, referer);
+        if (streamUrl && kind === "hls") {
+          // No bloquear en probe CDN: el proxy HLS suele reproducir igual.
+          const validated = await Promise.race([
+            isReachablePlaylist(streamUrl, referer),
+            new Promise<boolean>((r) => setTimeout(() => r(false), 2500)),
+          ]);
+          return packResolved(streamUrl, "hls", referer, "direct", lang, validated, req);
+        }
+      }
+    }
+
+    for (const lang of langs) {
+      const track = embeds[lang] || pickTrack(embeds, lang);
+      if (!track?.remux || typeof track.remux !== "string") continue;
+      const { streamUrl, kind } = await resolveHostStream("remux", track.remux, referer);
+      if (streamUrl && kind === "mp4") {
+        return packResolved(streamUrl, "mp4", `${UNLIM}/`, "remux", lang, true, req);
+      }
+    }
+
+    if (opts.type !== "tv") {
+      const candidate = `https://remux.unlimplay.com/remux?id=${opts.tmdbId}`;
+      if (await isValidRemux(candidate)) {
+        return packResolved(candidate, "mp4", `${UNLIM}/`, "remux", opts.lang, true, req);
+      }
     }
   }
 
-  const raced = await spectreRace(
-    candidates.filter((c) => c.host !== "direct" && c.host !== "remux"),
-    referer,
+  const track = pickTrack(embeds, opts.lang);
+  if (!track) return fallbackVidSrc(opts);
+
+  const ordered = HOST_PRIORITY.filter((h) => track[h]).map((h) => [h, track[h]] as const);
+  const extras = Object.entries(track).filter(
+    ([h]) => h !== "searched_names" && !HOST_PRIORITY.includes(h as (typeof HOST_PRIORITY)[number]),
   );
-  if (raced) {
-    noteHostWin(raced.host);
-    return {
-      ...packResolved(raced.streamUrl, raced.kind, referer, raced.host, raced.lang, true, req),
-      algorithm: "spectre",
-    };
-  }
+  const allHosts = [...ordered, ...extras];
+  const slice = allHosts.slice(idx);
 
-  // Segunda pasada: candidatos restantes fuera del race window
-  for (const c of candidates.slice(SPECTRE_RACE_SIZE)) {
-    const hit = await spectreTryOne(c, referer, new AbortController().signal);
-    if (hit) {
-      noteHostWin(hit.host);
-      return {
-        ...packResolved(hit.streamUrl, hit.kind, referer, hit.host, hit.lang, true, req),
-        algorithm: "spectre",
-      };
+  // Intentar extracción limpia en pocos hosts (con tope de tiempo total).
+  const deadline = Date.now() + 12000;
+  for (const [host, embedUrl] of slice) {
+    if (Date.now() > deadline) break;
+    if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
+    if (host === "direct" || host === "remux") continue;
+    if (isIframeOnlyHost(host)) continue;
+
+    try {
+      const { streamUrl, kind } = await Promise.race([
+        resolveHostStream(host, embedUrl, referer),
+        new Promise<{ streamUrl: null; kind: "embed" }>((resolve) =>
+          setTimeout(() => resolve({ streamUrl: null, kind: "embed" }), 4000),
+        ),
+      ]);
+      if (streamUrl && (kind === "hls" || kind === "mp4")) {
+        return packResolved(streamUrl, kind, referer, host, opts.lang, true, req);
+      }
+    } catch {
+      /* next host */
     }
   }
 
-  // Remux TMDB directo (movies)
-  if (opts.type !== "tv") {
-    const candidate = `https://remux.unlimplay.com/remux?id=${opts.tmdbId}`;
-    if (await isValidRemux(candidate)) {
-      noteHostWin("remux");
-      return {
-        ...packResolved(candidate, "mp4", `${UNLIM}/`, "remux", opts.lang, true, req),
-        algorithm: "spectre",
-      };
-    }
+  for (const [host, embedUrl] of slice) {
+    if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
+    if (host === "direct" || host === "remux") continue;
+    if (/unlimplay\.com/i.test(embedUrl) && /\/(f\/)?(play\/)?embed\//i.test(embedUrl)) continue;
+    return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
   }
 
-  return null;
+  for (const [host, embedUrl] of allHosts) {
+    if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
+    if (host === "direct" || host === "remux") continue;
+    if (/unlimplay\.com/i.test(embedUrl) && /\/(f\/)?(play\/)?embed\//i.test(embedUrl)) continue;
+    return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
+  }
+
+  return fallbackVidSrc(opts);
 }
 
 function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Request, stripSubs: boolean): string {
@@ -880,39 +795,30 @@ export function mountRichardflixStream(router: Router): void {
     try {
       const embeds = await fetchUnlimEmbeds({ type, tmdbId, season, episode });
       if (!embeds) {
-        res.setHeader("Cache-Control", "public, max-age=60");
+        const fb = fallbackVidSrc({ type, tmdbId, season, episode, lang });
+        res.setHeader("Cache-Control", "public, max-age=120");
         res.json({
-          ok: false,
-          algorithm: "spectre",
+          ok: true,
           lang,
           langs: [lang],
-          hosts: [],
-          extractableHosts: [],
-          error: "spectre_no_sources",
+          hosts: [fb.host],
+          track: { [fb.host]: fb.url },
+          fallback: true,
         });
         return;
       }
       const track = pickTrack(embeds, lang) ?? embeds.latino ?? {};
-      const ordered = HOST_PRIORITY.filter((h) => track[h] && !isIframeOnlyHost(h));
+      const ordered = HOST_PRIORITY.filter((h) => track[h]);
       const extras = Object.keys(track).filter(
-        (k) =>
-          k !== "searched_names" &&
-          !HOST_PRIORITY.includes(k as (typeof HOST_PRIORITY)[number]) &&
-          !isIframeOnlyHost(k),
+        (k) => k !== "searched_names" && !HOST_PRIORITY.includes(k as (typeof HOST_PRIORITY)[number]),
       );
-      const iframeHosts = Object.keys(track).filter(
-        (k) => k !== "searched_names" && isIframeOnlyHost(k) && track[k],
-      );
-      // Spectre: hosts extractables primero; iframe-only al final (cliente no debería usarlos)
-      const hosts = [...ordered, ...extras, ...iframeHosts];
+      const hosts = [...ordered, ...extras];
       res.setHeader("Cache-Control", "public, max-age=300");
       res.json({
         ok: true,
-        algorithm: "spectre",
         lang,
         langs: Object.keys(embeds).filter((k) => k !== "searched_names"),
         hosts,
-        extractableHosts: [...ordered, ...extras],
         track,
       });
     } catch (e) {
@@ -938,12 +844,7 @@ export function mountRichardflixStream(router: Router): void {
     try {
       const stream = await resolvePlayableStream(req, { type, tmdbId, season, episode, lang, hostIndex });
       if (!stream) {
-        res.status(404).json({
-          ok: false,
-          algorithm: "spectre",
-          error: "spectre_no_direct_stream",
-          message: "Sin m3u8/mp4 limpio (Direct-or-Nothing: no embed/ads)",
-        });
+        res.status(404).json({ ok: false, error: "no se pudo resolver stream" });
         return;
       }
       res.setHeader("Cache-Control", "public, max-age=120");
