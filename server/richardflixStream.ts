@@ -768,6 +768,21 @@ export async function resolvePlayableStream(
 
 function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Request, stripSubs: boolean): string {
   const base = new URL(targetUrl);
+
+  /** Emby HLS: segmentos relativos pierden ?api_key= del playlist padre → 401/500. */
+  const resolveUri = (uri: string): string => {
+    const abs = new URL(uri, base);
+    if (!abs.searchParams.has("api_key") && base.searchParams.has("api_key")) {
+      abs.searchParams.set("api_key", base.searchParams.get("api_key") || "");
+    }
+    for (const key of ["DeviceId", "MediaSourceId", "PlaySessionId", "SegmentContainer"]) {
+      if (!abs.searchParams.has(key) && base.searchParams.has(key)) {
+        abs.searchParams.set(key, base.searchParams.get(key) || "");
+      }
+    }
+    return abs.href;
+  };
+
   const normalized = stripSubs ? stripSubtitleRenditions(body) : body;
   return normalized
     .split("\n")
@@ -776,14 +791,12 @@ function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Requ
       if (!trimmed || trimmed.startsWith("#")) {
         if (trimmed.startsWith("#") && trimmed.includes('URI="')) {
           return trimmed.replace(/URI="([^"]+)"/g, (_m, uri: string) => {
-            const abs = new URL(uri, base).href;
-            return `URI="${proxyUrlFor(abs, referer, req)}"`;
+            return `URI="${proxyUrlFor(resolveUri(uri), referer, req)}"`;
           });
         }
         return line;
       }
-      const abs = new URL(trimmed, base).href;
-      return proxyUrlFor(abs, referer, req);
+      return proxyUrlFor(resolveUri(trimmed), referer, req);
     })
     .join("\n");
 }
