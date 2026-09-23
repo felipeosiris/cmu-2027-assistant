@@ -1,6 +1,7 @@
 /**
  * TV / radio en vivo para RichardFlix.
  * Dataset público MIT de Famelack (IPTV-org + YouTube Live + radio curada).
+ * + Emby Live TV (Cinema SFA) como país sintético `sf` ("Premium").
  * No scrapeamos famelack.com: solo GitHub/jsDelivr.
  */
 import type { Request, Response, Router } from "express";
@@ -9,6 +10,69 @@ const DATA_BASES = [
   "https://cdn.jsdelivr.net/gh/famelack/famelack-data@main",
   "https://raw.githubusercontent.com/famelack/famelack-data/main",
 ] as const;
+
+/** Emby Live TV (mismo servidor que Cinema SFA). Override con env. */
+const EMBY_ORIGIN = (
+  process.env.EMBY_ORIGIN || "http://mxcuentas.ddns.net:8096"
+).replace(/\/$/, "");
+const EMBY_API_KEY =
+  process.env.EMBY_API_KEY || "37b39687d72e43cdbe1844635ca5fc5e";
+/** País sintético para exponer canales Emby en la UI existente. */
+export const EMBY_COUNTRY = "sf";
+const EMBY_COUNTRY_NAME = "Premium TV";
+const EMBY_TTL_MS = 5 * 60 * 1000;
+
+/** Orden preferido (Cinema SFA) — match parcial por nombre. */
+const EMBY_CHANNEL_ORDER = [
+  "HBO",
+  "HBO 2",
+  "HBO FAMILY",
+  "HBO SIGNATURE",
+  "HBO MUNDI",
+  "CINEMAX",
+  "MAX PRIME",
+  "MAX UP",
+  "STAR CHANNEL",
+  "STAR SERIES",
+  "STAR LIFE",
+  "STAR ACTION",
+  "TNT",
+  "TNT SERIES",
+  "TNT NOVELAS",
+  "SPACE",
+  "FOX",
+  "FOX LIFE",
+  "FOX PREMIUM",
+  "FX",
+  "SONY",
+  "SONY CHANNEL",
+  "AXN",
+  "AMC",
+  "UNIVERSAL",
+  "UNIVERSAL PREMIERE",
+  "SYFY",
+  "USA",
+  "WARNER",
+  "TCM",
+  "I.SAT",
+  "DISCOVERY",
+  "HISTORY",
+  "NAT GEO",
+  "NAT GEO WILD",
+  "ANIMAL PLANET",
+  "CARTOON NETWORK",
+  "DISNEY",
+  "NICK",
+  "MTV",
+  "ESPN",
+  "FOX SPORTS",
+  "TYC",
+  "AZTECA",
+  "LAS ESTRELLAS",
+  "CANAL 5",
+  "ADN40",
+  "FORO TV",
+];
 
 type Kind = "tv" | "radio";
 
@@ -144,6 +208,100 @@ function countryCode(raw: string): string | null {
   return /^[a-z]{2}$/.test(cc) ? cc : null;
 }
 
+function b64urlEncode(s: string): string {
+  return Buffer.from(s, "utf8").toString("base64url");
+}
+
+function publicApiBase(req: Request): string {
+  const xfProto = String(req.headers["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim();
+  const proto = xfProto || req.protocol || "https";
+  const host = req.get("host") || "cmu-2027-assistant.onrender.com";
+  return `${proto}://${host}`;
+}
+
+/** HLS Emby vía proxy HTTPS de RichardFlix (evita mixed-content / HTTP en clientes). */
+function embyHlsProxyUrl(itemId: string, req: Request): string {
+  const target = `${EMBY_ORIGIN}/emby/Videos/${encodeURIComponent(itemId)}/master.m3u8?api_key=${EMBY_API_KEY}`;
+  const referer = `${EMBY_ORIGIN}/`;
+  return `${publicApiBase(req)}/rf/stream/proxy?u=${b64urlEncode(target)}&r=${b64urlEncode(referer)}`;
+}
+
+type EmbyItem = {
+  Id?: string;
+  Name?: string;
+  ChannelNumber?: string | number;
+  Overview?: string;
+};
+
+function embyOrderIndex(name: string): number {
+  const n = name.toUpperCase().trim();
+  for (let i = 0; i < EMBY_CHANNEL_ORDER.length; i++) {
+    const key = EMBY_CHANNEL_ORDER[i];
+    if (n.includes(key) || key.includes(n)) return i;
+  }
+  return 10_000;
+}
+
+async function fetchEmbyRawChannels(): Promise<EmbyItem[]> {
+  const cacheKey = "emby:livetv:items";
+  const cached = getCached(cacheKey);
+  if (Array.isArray(cached)) return cached as EmbyItem[];
+
+  const url =
+    `${EMBY_ORIGIN}/emby/Items?api_key=${encodeURIComponent(EMBY_API_KEY)}` +
+    `&Recursive=true&IncludeItemTypes=TvChannel,LiveTvChannel` +
+    `&Fields=ChannelNumber,Overview&SortBy=SortName&SortOrder=Ascending` +
+    `&EnableImages=false&Limit=500`;
+
+  const res = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+      "User-Agent": "RichardFlixLiveTv/1.0",
+    },
+  });
+  if (!res.ok) throw new Error(`Emby ${res.status}`);
+  const body = (await res.json()) as { Items?: EmbyItem[]; TotalRecordCount?: number };
+  const items = Array.isArray(body.Items) ? body.Items : [];
+  const now = Date.now();
+  memoryCache.set(cacheKey, {
+    body: items,
+    fetchedAt: now,
+    expiresAt: now + EMBY_TTL_MS,
+  });
+  return items;
+}
+
+function listEmbyChannels(req: Request): Promise<LiveChannel[]> {
+  return fetchEmbyRawChannels().then((items) => {
+    const out: LiveChannel[] = [];
+    const seen = new Set<string>();
+    for (const it of items) {
+      const id = String(it.Id || "").trim();
+      const name = String(it.Name || "").trim();
+      if (!id || !name || seen.has(id)) continue;
+      seen.add(id);
+      out.push({
+        id,
+        name,
+        country: EMBY_COUNTRY,
+        languages: ["spa"],
+        geoBlocked: false,
+        kind: "tv",
+        playType: "hls",
+        sources: [{ type: "hls", url: embyHlsProxyUrl(id, req) }],
+      });
+    }
+    return out.sort((a, b) => {
+      const ia = embyOrderIndex(a.name);
+      const ib = embyOrderIndex(b.name);
+      if (ia !== ib) return ia - ib;
+      return a.name.localeCompare(b.name, "es");
+    });
+  });
+}
+
 async function listCountries(): Promise<CountryMeta[]> {
   const body = (await fetchJson("/tv/raw/countries_metadata.json")) as Record<
     string,
@@ -153,7 +311,7 @@ async function listCountries(): Promise<CountryMeta[]> {
   for (const [code, meta] of Object.entries(body || {})) {
     if (!meta?.hasChannels) continue;
     const cc = countryCode(code);
-    if (!cc) continue;
+    if (!cc || cc === EMBY_COUNTRY) continue;
     out.push({
       code: cc,
       name: String(meta.country || cc.toUpperCase()),
@@ -161,14 +319,42 @@ async function listCountries(): Promise<CountryMeta[]> {
       channelCount: Number(meta.channelCount) || 0,
     });
   }
+
+  let embyCount = 0;
+  try {
+    embyCount = (await fetchEmbyRawChannels()).length;
+  } catch {
+    embyCount = 0;
+  }
+  if (embyCount > 0) {
+    out.unshift({
+      code: EMBY_COUNTRY,
+      name: EMBY_COUNTRY_NAME,
+      capital: "Emby",
+      channelCount: embyCount,
+    });
+  }
+
   return out.sort((a, b) => {
+    if (a.code === EMBY_COUNTRY) return -1;
+    if (b.code === EMBY_COUNTRY) return 1;
     if (a.code === "mx") return -1;
     if (b.code === "mx") return 1;
     return a.name.localeCompare(b.name, "es");
   });
 }
 
-async function listChannels(kind: Kind, cc: string): Promise<LiveChannel[]> {
+async function listChannels(
+  kind: Kind,
+  cc: string,
+  req?: Request,
+): Promise<LiveChannel[]> {
+  if (cc === EMBY_COUNTRY) {
+    if (kind !== "tv") return [];
+    if (!req) throw new Error("Emby channels require request context");
+    return listEmbyChannels(req);
+  }
+
   const path = `/${kind}/raw/countries/${cc}.json`;
   const body = (await fetchJson(path)) as RawChannel[];
   if (!Array.isArray(body)) return [];
@@ -210,8 +396,11 @@ export function mountRichardflixLiveTv(router: Router): void {
       return;
     }
     try {
-      const channels = await listChannels(kind, cc);
-      res.setHeader("Cache-Control", "public, max-age=180");
+      const channels = await listChannels(kind, cc, req);
+      res.setHeader(
+        "Cache-Control",
+        cc === EMBY_COUNTRY ? "public, max-age=60" : "public, max-age=180",
+      );
       res.json({ success: true, kind, country: cc, total: channels.length, channels });
     } catch (e) {
       res.status(502).json({
@@ -230,7 +419,7 @@ export function mountRichardflixLiveTv(router: Router): void {
       return;
     }
     try {
-      const channels = await listChannels(kind, cc);
+      const channels = await listChannels(kind, cc, req);
       const channel = channels.find((c) => c.id === id);
       if (!channel) {
         res.status(404).json({ success: false, error: "canal no encontrado" });
@@ -242,6 +431,23 @@ export function mountRichardflixLiveTv(router: Router): void {
       res.status(502).json({
         success: false,
         error: e instanceof Error ? e.message : "tv channel error",
+      });
+    }
+  });
+
+  router.get("/tv/emby/status", async (_req: Request, res: Response) => {
+    try {
+      const items = await fetchEmbyRawChannels();
+      res.json({
+        ok: true,
+        origin: EMBY_ORIGIN,
+        country: EMBY_COUNTRY,
+        total: items.length,
+      });
+    } catch (e) {
+      res.status(502).json({
+        ok: false,
+        error: e instanceof Error ? e.message : "emby unreachable",
       });
     }
   });
