@@ -616,7 +616,16 @@ async function validateStream(url: string, referer: string): Promise<boolean> {
 }
 
 function proxyUrlFor(target: string, referer: string, req: Request): string {
-  const base = `${req.protocol}://${req.get("host")}/rf/stream/proxy`;
+  const xfProto = String(req.headers["x-forwarded-proto"] || "")
+    .split(",")[0]
+    .trim();
+  let proto = xfProto || req.protocol || "https";
+  const host = req.get("host") || "cmu-2027-assistant.onrender.com";
+  // Render / Cloudflare: nunca devolver http:// en playlists (mixed content en web).
+  if (host.includes("onrender.com") || host.includes("cloudflare")) {
+    proto = "https";
+  }
+  const base = `${proto}://${host}/rf/stream/proxy`;
   return `${base}?u=${b64urlEncode(target)}&r=${b64urlEncode(referer)}&nosubs=1`;
 }
 
