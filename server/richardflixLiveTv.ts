@@ -221,11 +221,23 @@ function publicApiBase(req: Request): string {
   return `${proto}://${host}`;
 }
 
-/** HLS Emby vía proxy HTTPS de RichardFlix (evita mixed-content / HTTP en clientes). */
+/** HLS Emby (mismo path que funciona en tests: stream.m3u8 + MediaSourceId). */
 function embyHlsProxyUrl(itemId: string, req: Request): string {
-  const target = `${EMBY_ORIGIN}/emby/Videos/${encodeURIComponent(itemId)}/master.m3u8?api_key=${EMBY_API_KEY}`;
+  const target =
+    `${EMBY_ORIGIN}/emby/Videos/${encodeURIComponent(itemId)}/stream.m3u8` +
+    `?MediaSourceId=mediasource_${encodeURIComponent(itemId)}` +
+    `&DeviceId=rf-web&api_key=${EMBY_API_KEY}`;
   const referer = `${EMBY_ORIGIN}/`;
-  return `${publicApiBase(req)}/rf/stream/proxy?u=${b64urlEncode(target)}&r=${b64urlEncode(referer)}`;
+  return `${publicApiBase(req)}/rf/stream/proxy?u=${b64urlEncode(target)}&r=${b64urlEncode(referer)}&nosubs=1`;
+}
+
+/** MPEG-TS estático — mismo URL que Cinema SFA / VLC (`Static=true`). */
+function embyMpegtsProxyUrl(itemId: string, req: Request): string {
+  const target =
+    `${EMBY_ORIGIN}/emby/Videos/${encodeURIComponent(itemId)}/stream` +
+    `?api_key=${EMBY_API_KEY}&Static=true`;
+  const referer = `${EMBY_ORIGIN}/`;
+  return `${publicApiBase(req)}/rf/stream/proxy?u=${b64urlEncode(target)}&r=${b64urlEncode(referer)}&nosubs=1`;
 }
 
 type EmbyItem = {
@@ -289,8 +301,11 @@ function listEmbyChannels(req: Request): Promise<LiveChannel[]> {
         languages: ["spa"],
         geoBlocked: false,
         kind: "tv",
-        playType: "hls",
-        sources: [{ type: "hls", url: embyHlsProxyUrl(id, req) }],
+        playType: "mpegts",
+        sources: [
+          { type: "mpegts", url: embyMpegtsProxyUrl(id, req) },
+          { type: "hls", url: embyHlsProxyUrl(id, req) },
+        ],
       });
     }
     return out.sort((a, b) => {

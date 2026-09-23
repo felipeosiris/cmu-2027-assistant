@@ -889,13 +889,32 @@ export function mountRichardflixStream(router: Router): void {
     req.on("close", onClose);
 
     try {
+      /** Emby (Cinema SFA): token en header basta para segmentos HLS sin ?api_key=. */
+      const isEmby = /mxcuentas\.ddns\.net|\/emby\//i.test(u);
+      const embyKey =
+        process.env.EMBY_API_KEY || "37b39687d72e43cdbe1844635ca5fc5e";
+      const headers: Record<string, string> = {
+        "User-Agent": isEmby ? "CinemaSFA/1.0" : UA,
+        Referer: isEmby ? "http://mxcuentas.ddns.net:8096/" : r,
+        Accept: "*/*",
+      };
+      if (isEmby) {
+        headers["X-Emby-Token"] = embyKey;
+        headers["X-Emby-Authorization"] =
+          'MediaBrowser Client="CinemaSFA", Device="RichardFlix", DeviceId="rf-proxy", Version="1.0.0"';
+      } else {
+        try {
+          headers.Origin = new URL(r).origin;
+        } catch {
+          /* ignore */
+        }
+      }
+      // MPEG-TS live: Range a Emby a veces rompe el pipe; no reenviar.
+      const range = req.headers.range;
+      if (range && !isEmby) headers.Range = String(range);
+
       const upstream = await fetch(u, {
-        headers: {
-          "User-Agent": UA,
-          Referer: r,
-          Accept: "*/*",
-          Origin: new URL(r).origin,
-        },
+        headers,
         redirect: "follow",
         signal: ac.signal,
       });
