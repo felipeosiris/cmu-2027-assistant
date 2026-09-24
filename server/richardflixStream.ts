@@ -8,6 +8,11 @@ const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
 
 const UNLIM = "https://unlimplay.com";
+const UNLIM_MIRRORS = ["https://unlimplay.com", "https://www.unlimplay.com"] as const;
+
+/** Si Unlim responde 403/licencia o timeout, no reintentar en cada película (era ~24s de espera). */
+let unlimDownUntil = 0;
+const UNLIM_DOWN_TTL_MS = 8 * 60 * 1000;
 
 export type StreamLang = "latino" | "espanol" | "subtitulado";
 export type StreamMediaType = "movie" | "tv";
@@ -144,9 +149,37 @@ function embedPagePath(opts: {
   episode?: number;
 }): string {
   const { type, tmdbId, season = 1, episode = 1 } = opts;
-  // Misma ruta que Apple TV (`/play/embed/…`); UnlimPlay redirige a `/f/embed/…`.
+  // Ruta histórica UnlimPlay / Apple TV.
   if (type === "movie") return `/play/embed/movie/${tmdbId}`;
   return `/play/embed/tv/${tmdbId}/${season}/${episode}`;
+}
+
+function embedPagePaths(opts: {
+  type: StreamMediaType;
+  tmdbId: number;
+  season?: number;
+  episode?: number;
+}): string[] {
+  const { type, tmdbId, season = 1, episode = 1 } = opts;
+  if (type === "movie") {
+    return [`/play/embed/movie/${tmdbId}`, `/f/embed/movie/${tmdbId}`, `/embed/movie/${tmdbId}`];
+  }
+  return [
+    `/play/embed/tv/${tmdbId}/${season}/${episode}`,
+    `/f/embed/tv/${tmdbId}/${season}/${episode}`,
+    `/embed/tv/${tmdbId}/${season}/${episode}`,
+  ];
+}
+
+function isUnlimDeadPage(status: number, text: string): boolean {
+  if (status === 403 || status === 402) return true;
+  const t = text.toLowerCase();
+  return (
+    t.includes("licencia multiembed") ||
+    t.includes("ioncube") ||
+    t.includes("license required") ||
+    (text.length < 800 && t.includes("multiembed clean"))
+  );
 }
 
 function orderedLangs(preferred: StreamLang, embeds: EmbedsMap): StreamLang[] {
@@ -185,7 +218,6 @@ function fallbackVidSrc(opts: {
   episode?: number;
   lang: StreamLang;
 }): { mode: "embed"; url: string; referer: string; host: string; lang: StreamLang } {
-  // Preferir 2embed/multiembed: vidsrc suele ir vacío en iframe; Unlim caído → estos.
   const embeds = fallbackEmbedList(opts);
   const first = embeds[0]!;
   return {
@@ -197,6 +229,13 @@ function fallbackVidSrc(opts: {
   };
 }
 
+/** Params de idioma para embeds externos (Unlim caído → priorizar latino/es). */
+function embedLangParams(lang: StreamLang): { multi: string; ds: string } {
+  if (lang === "subtitulado") return { multi: "english", ds: "en" };
+  if (lang === "espanol") return { multi: "spanish", ds: "es" };
+  return { multi: "latino", ds: "es" };
+}
+
 function fallbackEmbedList(opts: {
   type: StreamMediaType;
   tmdbId: number;
@@ -204,20 +243,15 @@ function fallbackEmbedList(opts: {
   episode?: number;
   lang: StreamLang;
 }): Array<{ host: string; url: string; referer: string }> {
-  const ds = opts.lang === "subtitulado" ? "en" : "es";
+  const { multi, ds } = embedLangParams(opts.lang);
   const id = opts.tmdbId;
   if (opts.type === "tv") {
     const s = opts.season ?? 1;
     const e = opts.episode ?? 1;
     return [
       {
-        host: "2embed",
-        url: `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}`,
-        referer: "https://www.2embed.cc/",
-      },
-      {
         host: "multiembed",
-        url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}`,
+        url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&lang=${multi}`,
         referer: "https://multiembed.mov/",
       },
       {
@@ -225,23 +259,38 @@ function fallbackEmbedList(opts: {
         url: `https://vidsrc.to/embed/tv/${id}/${s}/${e}?ds_lang=${ds}&autoplay=1`,
         referer: "https://vidsrc.to/",
       },
+      {
+        host: "vidsrc-pm",
+        url: `https://vidsrc.pm/embed/tv/${id}/${s}/${e}?ds_lang=${ds}`,
+        referer: "https://vidsrc.pm/",
+      },
+      {
+        host: "2embed",
+        url: `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}`,
+        referer: "https://www.2embed.cc/",
+      },
     ];
   }
   return [
     {
-      host: "2embed",
-      url: `https://www.2embed.cc/embed/${id}`,
-      referer: "https://www.2embed.cc/",
-    },
-    {
       host: "multiembed",
-      url: `https://multiembed.mov/?video_id=${id}&tmdb=1`,
+      url: `https://multiembed.mov/?video_id=${id}&tmdb=1&lang=${multi}`,
       referer: "https://multiembed.mov/",
     },
     {
       host: "vidsrc",
       url: `https://vidsrc.to/embed/movie/${id}?ds_lang=${ds}&autoplay=1`,
       referer: "https://vidsrc.to/",
+    },
+    {
+      host: "vidsrc-pm",
+      url: `https://vidsrc.pm/embed/movie/${id}?ds_lang=${ds}`,
+      referer: "https://vidsrc.pm/",
+    },
+    {
+      host: "2embed",
+      url: `https://www.2embed.cc/embed/${id}`,
+      referer: "https://www.2embed.cc/",
     },
   ];
 }
@@ -255,7 +304,11 @@ function embedReferer(opts: {
   return `${UNLIM}${embedPagePath(opts)}`;
 }
 
-async function fetchText(url: string, referer: string): Promise<{ text: string; finalUrl: string; status: number }> {
+async function fetchText(
+  url: string,
+  referer: string,
+  timeoutMs = 5000,
+): Promise<{ text: string; finalUrl: string; status: number }> {
   const res = await fetch(url, {
     headers: {
       "User-Agent": UA,
@@ -264,10 +317,51 @@ async function fetchText(url: string, referer: string): Promise<{ text: string; 
       "Accept-Language": "es-MX,es;q=0.9",
     },
     redirect: "follow",
-    signal: AbortSignal.timeout(12000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const text = await res.text();
   return { text, finalUrl: res.url, status: res.status };
+}
+
+export async function fetchUnlimEmbeds(opts: {
+  type: StreamMediaType;
+  tmdbId: number;
+  season?: number;
+  episode?: number;
+}): Promise<EmbedsMap | null> {
+  const key = `emb:${opts.type}:${opts.tmdbId}:${opts.season ?? 1}:${opts.episode ?? 1}`;
+  const cached = cacheGet<EmbedsMap>(key);
+  if (cached) return cached;
+
+  if (Date.now() < unlimDownUntil) return null;
+
+  const season = opts.season ?? 1;
+  const episode = opts.episode ?? 1;
+  const paths = embedPagePaths({ ...opts, season, episode });
+
+  for (const origin of UNLIM_MIRRORS) {
+    const referer = `${origin}/`;
+    for (const path of paths) {
+      try {
+        const { text, status } = await fetchText(`${origin}${path}`, referer, 5000);
+        if (isUnlimDeadPage(status, text)) {
+          unlimDownUntil = Date.now() + UNLIM_DOWN_TTL_MS;
+          return null;
+        }
+        if (status >= 400) continue;
+        const data = parseEmbedsMap(text);
+        if (data) {
+          cacheSet(key, data, 20 * 60 * 1000);
+          return data;
+        }
+      } catch {
+        /* next */
+      }
+    }
+  }
+
+  unlimDownUntil = Date.now() + UNLIM_DOWN_TTL_MS;
+  return null;
 }
 
 function extractJsonObjectAfter(text: string, marker: string): string | null {
@@ -334,40 +428,6 @@ function parseEmbedsMap(text: string): EmbedsMap | null {
       }
     } catch {
       /* try next */
-    }
-  }
-  return null;
-}
-
-export async function fetchUnlimEmbeds(opts: {
-  type: StreamMediaType;
-  tmdbId: number;
-  season?: number;
-  episode?: number;
-}): Promise<EmbedsMap | null> {
-  const key = `emb:${opts.type}:${opts.tmdbId}:${opts.season ?? 1}:${opts.episode ?? 1}`;
-  const cached = cacheGet<EmbedsMap>(key);
-  if (cached) return cached;
-
-  const referer = `${UNLIM}/`;
-  const season = opts.season ?? 1;
-  const episode = opts.episode ?? 1;
-  const paths = [
-    embedPagePath(opts),
-    opts.type === "movie" ? `/f/embed/movie/${opts.tmdbId}` : `/f/embed/tv/${opts.tmdbId}/${season}/${episode}`,
-  ];
-
-  for (const path of paths) {
-    try {
-      const { text, status } = await fetchText(`${UNLIM}${path}`, referer);
-      if (status >= 400) continue;
-      const data = parseEmbedsMap(text);
-      if (data) {
-        cacheSet(key, data, 20 * 60 * 1000);
-        return data;
-      }
-    } catch {
-      /* next path */
     }
   }
   return null;
