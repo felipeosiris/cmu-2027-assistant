@@ -100,8 +100,8 @@ export type LiveChannel = {
   languages: string[];
   geoBlocked: boolean;
   kind: Kind;
-  playType: "youtube" | "hls" | "audio";
-  sources: Array<{ type: "youtube" | "hls" | "audio"; url: string }>;
+  playType: "youtube" | "hls" | "audio" | "mpegts";
+  sources: Array<{ type: "youtube" | "hls" | "audio" | "mpegts"; url: string }>;
 };
 
 type CountryMeta = {
