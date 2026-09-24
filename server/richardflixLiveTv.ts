@@ -301,10 +301,10 @@ function listEmbyChannels(req: Request): Promise<LiveChannel[]> {
         languages: ["spa"],
         geoBlocked: false,
         kind: "tv",
-        playType: "mpegts",
+        playType: "hls",
         sources: [
-          { type: "mpegts", url: embyMpegtsProxyUrl(id, req) },
           { type: "hls", url: embyHlsProxyUrl(id, req) },
+          { type: "mpegts", url: embyMpegtsProxyUrl(id, req) },
         ],
       });
     }

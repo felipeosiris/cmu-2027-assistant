@@ -769,22 +769,30 @@ export async function resolvePlayableStream(
 function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Request, stripSubs: boolean): string {
   const base = new URL(targetUrl);
 
-  /** Emby HLS: segmentos relativos pierden ?api_key= del playlist padre → 401/500. */
+  /** Emby HLS: segmentos relativos pierden ?api_key=. NO copiar DeviceId/MediaSourceId al .ts (Emby → 400). */
   const resolveUri = (uri: string): string => {
     const abs = new URL(uri, base);
+    const isSegment = /\.(ts|m4s|mp4)($|\?)/i.test(abs.pathname);
     if (!abs.searchParams.has("api_key") && base.searchParams.has("api_key")) {
       abs.searchParams.set("api_key", base.searchParams.get("api_key") || "");
     }
-    for (const key of ["DeviceId", "MediaSourceId", "PlaySessionId", "SegmentContainer"]) {
-      if (!abs.searchParams.has(key) && base.searchParams.has(key)) {
-        abs.searchParams.set(key, base.searchParams.get(key) || "");
+    if (!isSegment) {
+      for (const key of ["DeviceId", "MediaSourceId", "PlaySessionId", "SegmentContainer"]) {
+        if (!abs.searchParams.has(key) && base.searchParams.has(key)) {
+          abs.searchParams.set(key, base.searchParams.get(key) || "");
+        }
       }
+    } else {
+      abs.searchParams.delete("DeviceId");
+      abs.searchParams.delete("MediaSourceId");
+      abs.searchParams.delete("PlaySessionId");
+      abs.searchParams.delete("SegmentContainer");
     }
     return abs.href;
   };
 
   const normalized = stripSubs ? stripSubtitleRenditions(body) : body;
-  return normalized
+  let out = normalized
     .split("\n")
     .map((line) => {
       const trimmed = line.trim();
@@ -799,8 +807,13 @@ function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Requ
       return proxyUrlFor(resolveUri(trimmed), referer, req);
     })
     .join("\n");
-}
 
+  // Live TV Emby a veces incluye ENDLIST en ventanas cortas; quitarlo para que el cliente refresque.
+  if (/mxcuentas\.ddns\.net|\/emby\//i.test(targetUrl)) {
+    out = out.replace(/#EXT-X-ENDLIST\s*/gi, "");
+  }
+  return out;
+}
 export function mountRichardflixStream(router: Router): void {
   router.get("/stream/sources", async (req, res) => {
     const type = req.query.type === "tv" ? "tv" : "movie";
