@@ -185,25 +185,65 @@ function fallbackVidSrc(opts: {
   episode?: number;
   lang: StreamLang;
 }): { mode: "embed"; url: string; referer: string; host: string; lang: StreamLang } {
+  // Preferir 2embed/multiembed: vidsrc suele ir vacío en iframe; Unlim caído → estos.
+  const embeds = fallbackEmbedList(opts);
+  const first = embeds[0]!;
+  return {
+    mode: "embed",
+    url: first.url,
+    referer: first.referer,
+    host: first.host,
+    lang: opts.lang,
+  };
+}
+
+function fallbackEmbedList(opts: {
+  type: StreamMediaType;
+  tmdbId: number;
+  season?: number;
+  episode?: number;
+  lang: StreamLang;
+}): Array<{ host: string; url: string; referer: string }> {
   const ds = opts.lang === "subtitulado" ? "en" : "es";
+  const id = opts.tmdbId;
   if (opts.type === "tv") {
     const s = opts.season ?? 1;
     const e = opts.episode ?? 1;
-    return {
-      mode: "embed",
-      url: `https://vidsrc.to/embed/tv/${opts.tmdbId}/${s}/${e}?ds_lang=${ds}&autoplay=1`,
-      referer: "https://vidsrc.to/",
-      host: "vidsrc",
-      lang: opts.lang,
-    };
+    return [
+      {
+        host: "2embed",
+        url: `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}`,
+        referer: "https://www.2embed.cc/",
+      },
+      {
+        host: "multiembed",
+        url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}`,
+        referer: "https://multiembed.mov/",
+      },
+      {
+        host: "vidsrc",
+        url: `https://vidsrc.to/embed/tv/${id}/${s}/${e}?ds_lang=${ds}&autoplay=1`,
+        referer: "https://vidsrc.to/",
+      },
+    ];
   }
-  return {
-    mode: "embed",
-    url: `https://vidsrc.to/embed/movie/${opts.tmdbId}?ds_lang=${ds}&autoplay=1`,
-    referer: "https://vidsrc.to/",
-    host: "vidsrc",
-    lang: opts.lang,
-  };
+  return [
+    {
+      host: "2embed",
+      url: `https://www.2embed.cc/embed/${id}`,
+      referer: "https://www.2embed.cc/",
+    },
+    {
+      host: "multiembed",
+      url: `https://multiembed.mov/?video_id=${id}&tmdb=1`,
+      referer: "https://multiembed.mov/",
+    },
+    {
+      host: "vidsrc",
+      url: `https://vidsrc.to/embed/movie/${id}?ds_lang=${ds}&autoplay=1`,
+      referer: "https://vidsrc.to/",
+    },
+  ];
 }
 
 function embedReferer(opts: {
@@ -673,7 +713,15 @@ export async function resolvePlayableStream(
 ): Promise<ResolvedStream | { mode: "embed"; url: string; referer: string; host: string; lang: StreamLang } | null> {
   const embeds = await fetchUnlimEmbeds(opts);
   if (!embeds) {
-    return fallbackVidSrc(opts);
+    const list = fallbackEmbedList(opts);
+    const pick = list[Math.min(Math.max(0, opts.hostIndex ?? 0), list.length - 1)]!;
+    return {
+      mode: "embed",
+      url: pick.url,
+      referer: pick.referer,
+      host: pick.host,
+      lang: opts.lang,
+    };
   }
 
   const langs = orderedLangs(opts.lang, embeds);
@@ -830,14 +878,15 @@ export function mountRichardflixStream(router: Router): void {
     try {
       const embeds = await fetchUnlimEmbeds({ type, tmdbId, season, episode });
       if (!embeds) {
-        const fb = fallbackVidSrc({ type, tmdbId, season, episode, lang });
-        res.setHeader("Cache-Control", "public, max-age=120");
+        const list = fallbackEmbedList({ type, tmdbId, season, episode, lang });
+        const track = Object.fromEntries(list.map((e) => [e.host, e.url]));
+        res.setHeader("Cache-Control", "public, max-age=60");
         res.json({
           ok: true,
           lang,
           langs: [lang],
-          hosts: [fb.host],
-          track: { [fb.host]: fb.url },
+          hosts: list.map((e) => e.host),
+          track,
           fallback: true,
         });
         return;
@@ -902,29 +951,26 @@ export function mountRichardflixStream(router: Router): void {
     req.on("close", onClose);
 
     try {
-      /** Emby (Cinema SFA): token en header basta para segmentos HLS sin ?api_key=. */
+      // Emby Live TV: headers Cinema SFA. VOD (UnlimPlay/etc.): exactamente como antes.
       const isEmby = /mxcuentas\.ddns\.net|\/emby\//i.test(u);
       const embyKey =
         process.env.EMBY_API_KEY || "37b39687d72e43cdbe1844635ca5fc5e";
-      const headers: Record<string, string> = {
-        "User-Agent": isEmby ? "CinemaSFA/1.0" : UA,
-        Referer: isEmby ? "http://mxcuentas.ddns.net:8096/" : r,
-        Accept: "*/*",
-      };
-      if (isEmby) {
-        headers["X-Emby-Token"] = embyKey;
-        headers["X-Emby-Authorization"] =
-          'MediaBrowser Client="CinemaSFA", Device="RichardFlix", DeviceId="rf-proxy", Version="1.0.0"';
-      } else {
-        try {
-          headers.Origin = new URL(r).origin;
-        } catch {
-          /* ignore */
-        }
-      }
-      // MPEG-TS live: Range a Emby a veces rompe el pipe; no reenviar.
-      const range = req.headers.range;
-      if (range && !isEmby) headers.Range = String(range);
+
+      const headers: Record<string, string> = isEmby
+        ? {
+            "User-Agent": "CinemaSFA/1.0",
+            Referer: "http://mxcuentas.ddns.net:8096/",
+            Accept: "*/*",
+            "X-Emby-Token": embyKey,
+            "X-Emby-Authorization":
+              'MediaBrowser Client="CinemaSFA", Device="RichardFlix", DeviceId="rf-proxy", Version="1.0.0"',
+          }
+        : {
+            "User-Agent": UA,
+            Referer: r,
+            Accept: "*/*",
+            Origin: new URL(r).origin,
+          };
 
       const upstream = await fetch(u, {
         headers,
