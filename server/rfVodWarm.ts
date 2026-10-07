@@ -172,9 +172,18 @@ async function runCycle(): Promise<void> {
 }
 
 export function mountRfVodWarm(router: Router): void {
+  router.get("/stream/warm/health", (_req, res) => {
+    res.json({
+      firestore: vodCacheEnabled(),
+      saVarPresent: Boolean(process.env.RF_FIREBASE_SA?.trim()),
+      warmKeyPresent: Boolean(process.env.RF_WARM_KEY?.trim()),
+      running: status.running,
+    });
+  });
+
   router.post("/stream/warm", (req, res) => {
-    const expected = process.env.RF_WARM_KEY;
-    if (!expected || req.get("x-warm-key") !== expected) {
+    const expected = process.env.RF_WARM_KEY?.trim();
+    if (!expected || req.get("x-warm-key")?.trim() !== expected) {
       res.status(401).json({ ok: false, error: "unauthorized" });
       return;
     }
