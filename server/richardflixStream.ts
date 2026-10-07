@@ -389,8 +389,42 @@ export function unlimEmbedsKey(opts: UnlimEmbedsOpts): string {
   return `emb:${opts.type}:${opts.tmdbId}:${opts.season ?? 1}:${opts.episode ?? 1}`;
 }
 
+/** API JSON que la página de UnlimPlay consulta aparte para el stream "direct" latino. */
+async function fetchVimeosDirect(opts: UnlimEmbedsOpts): Promise<string | null> {
+  const qs =
+    opts.type === "tv"
+      ? `id=${opts.tmdbId}&season=${opts.season ?? 1}&episode=${opts.episode ?? 1}`
+      : `id=${opts.tmdbId}`;
+  try {
+    const res = await fetch(`https://vimeos.unlimplay.com/?${qs}`, {
+      headers: { "User-Agent": UA, Accept: "application/json", Referer: `${UNLIM}/`, Origin: UNLIM },
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!res.ok) return null;
+    const d = (await res.json()) as { embeds?: { latino?: { direct?: string } } };
+    const direct = d?.embeds?.latino?.direct;
+    return typeof direct === "string" && direct.includes(".m3u8") ? direct : null;
+  } catch {
+    return null;
+  }
+}
+
 /** `cacheable`: respuesta completa de UnlimPlay (con o sin servidores), no un error/timeout. */
 async function fetchUnlimEmbedsLive(
+  opts: UnlimEmbedsOpts,
+): Promise<{ data: EmbedsMap | null; cacheable: boolean }> {
+  const directPromise = fetchVimeosDirect(opts);
+  let page = await fetchUnlimEmbedsPage(opts);
+  // A veces la página cierra sin mandar finalizePlayer aunque el título sí tenga servidores.
+  if (!page.data && page.cacheable) page = await fetchUnlimEmbedsPage(opts);
+  const direct = page.data?.latino?.direct ? null : await directPromise;
+  if (!page.data && !direct) return { data: null, cacheable: false };
+  const data: EmbedsMap = { ...(page.data ?? {}) };
+  if (direct) data.latino = { direct, ...(data.latino ?? {}) };
+  return { data, cacheable: page.cacheable || Boolean(direct) };
+}
+
+async function fetchUnlimEmbedsPage(
   opts: UnlimEmbedsOpts,
 ): Promise<{ data: EmbedsMap | null; cacheable: boolean }> {
   if (Date.now() < unlimDownUntil) return { data: null, cacheable: false };
