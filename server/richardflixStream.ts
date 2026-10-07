@@ -1064,6 +1064,9 @@ export function mountRichardflixStream(router: Router): void {
       const embyKey =
         process.env.EMBY_API_KEY || "37b39687d72e43cdbe1844635ca5fc5e";
 
+      // vimeos (stream "direct" de UnlimPlay) responde 403 si llega Referer de unlimplay.
+      const noReferer = /(^|\.)vimeos\.[a-z]+$/i.test(new URL(u).hostname);
+
       const headers: Record<string, string> = isEmby
         ? {
             "User-Agent": "CinemaSFA/1.0",
@@ -1073,12 +1076,14 @@ export function mountRichardflixStream(router: Router): void {
             "X-Emby-Authorization":
               'MediaBrowser Client="CinemaSFA", Device="RichardFlix", DeviceId="rf-proxy", Version="1.0.0"',
           }
-        : {
-            "User-Agent": UA,
-            Referer: r,
-            Accept: "*/*",
-            Origin: new URL(r).origin,
-          };
+        : noReferer
+          ? { "User-Agent": UA, Accept: "*/*" }
+          : {
+              "User-Agent": UA,
+              Referer: r,
+              Accept: "*/*",
+              Origin: new URL(r).origin,
+            };
 
       const upstream = await fetch(u, {
         headers,
