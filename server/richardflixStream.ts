@@ -323,6 +323,51 @@ async function fetchText(
   return { text, finalUrl: res.url, status: res.status };
 }
 
+// UnlimPlay solo sirve el player a peticiones con contexto de iframe y empuja el
+// mapa de embeds al final del stream (~20 s después del primer byte).
+async function fetchUnlimPage(
+  url: string,
+  referer: string,
+  timeoutMs = 24000,
+): Promise<{ status: number; text: string; data: EmbedsMap | null }> {
+  const res = await fetch(url, {
+    headers: {
+      "User-Agent": UA,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "es-MX,es;q=0.9",
+      Referer: referer,
+      "Sec-Fetch-Dest": "iframe",
+      "Sec-Fetch-Mode": "navigate",
+      "Sec-Fetch-Site": "cross-site",
+      "Upgrade-Insecure-Requests": "1",
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(timeoutMs),
+  });
+  if (!res.body) return { status: res.status, text: "", data: null };
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let text = "";
+  try {
+    while (text.length < 2_000_000) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      text += decoder.decode(value, { stream: true });
+      if (res.status >= 400) continue;
+      if (text.includes("finalizePlayer(") || text.includes("EMBEDS = ")) {
+        const data = parseEmbedsMap(text);
+        if (data) return { status: res.status, text, data };
+      }
+    }
+  } catch {
+    /* timeout: se evalúa lo recibido */
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  return { status: res.status, text, data: res.status < 400 ? parseEmbedsMap(text) : null };
+}
+
 export async function fetchUnlimEmbeds(opts: {
   type: StreamMediaType;
   tmdbId: number;
@@ -343,17 +388,16 @@ export async function fetchUnlimEmbeds(opts: {
     const referer = `${origin}/`;
     for (const path of paths) {
       try {
-        const { text, status } = await fetchText(`${origin}${path}`, referer, 5000);
-        if (isUnlimDeadPage(status, text)) {
-          unlimDownUntil = Date.now() + UNLIM_DOWN_TTL_MS;
-          return null;
-        }
-        if (status >= 400) continue;
-        const data = parseEmbedsMap(text);
+        const { text, status, data } = await fetchUnlimPage(`${origin}${path}`, referer);
         if (data) {
           cacheSet(key, data, 20 * 60 * 1000);
           return data;
         }
+        if (isUnlimDeadPage(status, text) && status !== 403) {
+          unlimDownUntil = Date.now() + UNLIM_DOWN_TTL_MS;
+          return null;
+        }
+        if (status < 400) return null;
       } catch {
         /* next */
       }
@@ -422,7 +466,11 @@ function parseEmbedsMap(text: string): EmbedsMap | null {
       const data = JSON.parse(raw) as EmbedsMap;
       if (data && typeof data === "object" && !Array.isArray(data)) {
         const langs = Object.keys(data);
-        if (langs.some((k) => data[k] && typeof data[k] === "object")) {
+        if (
+          langs.some(
+            (k) => data[k] && typeof data[k] === "object" && !Array.isArray(data[k]),
+          )
+        ) {
           return data;
         }
       }
