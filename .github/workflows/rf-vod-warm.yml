@@ -1,0 +1,25 @@
+name: RichardFlix VOD cache warm
+
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - name: Start and wait for warm cycle
+        env:
+          BASE: https://cmu-2027-assistant.onrender.com/rf/stream/warm
+          KEY: ${{ secrets.RF_WARM_KEY }}
+        run: |
+          call() { curl -sS -m 90 --retry 3 --retry-delay 20 -X POST -H "x-warm-key: $KEY" "$1"; }
+          call "$BASE?start=1"; echo
+          for i in $(seq 1 45); do
+            sleep 60
+            out=$(call "$BASE")
+            echo "$out"
+            echo "$out" | grep -q '"running":false' && exit 0
+          done

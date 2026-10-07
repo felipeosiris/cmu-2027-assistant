@@ -2,6 +2,7 @@
  * RichardFlix VOD — resuelve m3u8/mp4 nativo cuando se puede; si no, embed del host.
  */
 import type { Request, Router } from "express";
+import { vodCacheGet, vodCacheSet } from "./rfVodCache.js";
 
 /** Mismo UA Safari que el POC de Apple TV (UnlimPlayResolver). */
 const UA =
@@ -329,7 +330,7 @@ async function fetchUnlimPage(
   url: string,
   referer: string,
   timeoutMs = 24000,
-): Promise<{ status: number; text: string; data: EmbedsMap | null }> {
+): Promise<{ status: number; text: string; data: EmbedsMap | null; complete: boolean }> {
   const res = await fetch(url, {
     headers: {
       "User-Agent": UA,
@@ -344,20 +345,24 @@ async function fetchUnlimPage(
     redirect: "follow",
     signal: AbortSignal.timeout(timeoutMs),
   });
-  if (!res.body) return { status: res.status, text: "", data: null };
+  if (!res.body) return { status: res.status, text: "", data: null, complete: false };
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
   let text = "";
+  let complete = false;
   try {
     while (text.length < 2_000_000) {
       const { value, done } = await reader.read();
-      if (done) break;
+      if (done) {
+        complete = true;
+        break;
+      }
       text += decoder.decode(value, { stream: true });
       if (res.status >= 400) continue;
       if (text.includes("finalizePlayer(") || text.includes("EMBEDS = ")) {
         const data = parseEmbedsMap(text);
-        if (data) return { status: res.status, text, data };
+        if (data) return { status: res.status, text, data, complete: true };
       }
     }
   } catch {
@@ -365,20 +370,30 @@ async function fetchUnlimPage(
   } finally {
     reader.cancel().catch(() => {});
   }
-  return { status: res.status, text, data: res.status < 400 ? parseEmbedsMap(text) : null };
+  return {
+    status: res.status,
+    text,
+    data: res.status < 400 ? parseEmbedsMap(text) : null,
+    complete,
+  };
 }
 
-export async function fetchUnlimEmbeds(opts: {
+type UnlimEmbedsOpts = {
   type: StreamMediaType;
   tmdbId: number;
   season?: number;
   episode?: number;
-}): Promise<EmbedsMap | null> {
-  const key = `emb:${opts.type}:${opts.tmdbId}:${opts.season ?? 1}:${opts.episode ?? 1}`;
-  const cached = cacheGet<EmbedsMap>(key);
-  if (cached) return cached;
+};
 
-  if (Date.now() < unlimDownUntil) return null;
+export function unlimEmbedsKey(opts: UnlimEmbedsOpts): string {
+  return `emb:${opts.type}:${opts.tmdbId}:${opts.season ?? 1}:${opts.episode ?? 1}`;
+}
+
+/** `cacheable`: respuesta completa de UnlimPlay (con o sin servidores), no un error/timeout. */
+async function fetchUnlimEmbedsLive(
+  opts: UnlimEmbedsOpts,
+): Promise<{ data: EmbedsMap | null; cacheable: boolean }> {
+  if (Date.now() < unlimDownUntil) return { data: null, cacheable: false };
 
   const season = opts.season ?? 1;
   const episode = opts.episode ?? 1;
@@ -388,16 +403,16 @@ export async function fetchUnlimEmbeds(opts: {
     const referer = `${origin}/`;
     for (const path of paths) {
       try {
-        const { text, status, data } = await fetchUnlimPage(`${origin}${path}`, referer);
-        if (data) {
-          cacheSet(key, data, 20 * 60 * 1000);
-          return data;
-        }
+        const { text, status, data, complete } = await fetchUnlimPage(
+          `${origin}${path}`,
+          referer,
+        );
+        if (data) return { data, cacheable: true };
         if (isUnlimDeadPage(status, text) && status !== 403) {
           unlimDownUntil = Date.now() + UNLIM_DOWN_TTL_MS;
-          return null;
+          return { data: null, cacheable: false };
         }
-        if (status < 400) return null;
+        if (status < 400) return { data: null, cacheable: complete };
       } catch {
         /* next */
       }
@@ -405,7 +420,42 @@ export async function fetchUnlimEmbeds(opts: {
   }
 
   unlimDownUntil = Date.now() + UNLIM_DOWN_TTL_MS;
-  return null;
+  return { data: null, cacheable: false };
+}
+
+export async function fetchUnlimEmbeds(
+  opts: UnlimEmbedsOpts,
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<EmbedsMap | null> {
+  const key = unlimEmbedsKey(opts);
+  if (!fresh) {
+    const cached = cacheGet<EmbedsMap>(key);
+    if (cached) return cached;
+    const stored = await vodCacheGet(key);
+    if (stored) {
+      if (stored.data) cacheSet(key, stored.data, 20 * 60 * 1000);
+      return stored.data;
+    }
+  }
+
+  const { data, cacheable } = await fetchUnlimEmbedsLive(opts);
+  if (data) cacheSet(key, data, 20 * 60 * 1000);
+  if (cacheable) await vodCacheSet(key, data);
+  return data;
+}
+
+/** Para el precalentado: resultado explícito sin pasar por la caché. */
+export async function warmUnlimEmbeds(
+  opts: UnlimEmbedsOpts,
+): Promise<"ok" | "empty" | "error" | "down"> {
+  if (Date.now() < unlimDownUntil) return "down";
+  const key = unlimEmbedsKey(opts);
+  const { data, cacheable } = await fetchUnlimEmbedsLive(opts);
+  if (data) cacheSet(key, data, 20 * 60 * 1000);
+  if (cacheable) await vodCacheSet(key, data);
+  if (data) return "ok";
+  if (cacheable) return "empty";
+  return Date.now() < unlimDownUntil ? "down" : "error";
 }
 
 function extractJsonObjectAfter(text: string, marker: string): string | null {

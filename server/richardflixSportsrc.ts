@@ -10,6 +10,7 @@ import { mountRichardflixDramas } from "./richardflixDramas.js";
 import { mountRichardflixHoshiyomi } from "./richardflixHoshiyomi.js";
 import { mountRichardflixLiveTv } from "./richardflixLiveTv.js";
 import { mountRichardflixStream } from "./richardflixStream.js";
+import { mountRfVodWarm } from "./rfVodWarm.js";
 import { mountRichardflixYtm } from "./richardflixYtm.js";
 
 const SPORTSRC_HOST = "https://api.sportsrc.org";
@@ -1105,6 +1106,7 @@ export function createRichardflixSportsRouter(): Router {
 
   mountRichardflixLiveTv(router);
   mountRichardflixStream(router);
+  mountRfVodWarm(router);
   mountRichardflixYtm(router);
   // trial (Hoshiyomi) ANTES de /dramas/:id para no capturar "trial" como id
   mountRichardflixHoshiyomi(router);
