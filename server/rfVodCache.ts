@@ -16,6 +16,7 @@ export type VodCacheDoc = {
 };
 
 let db: Firestore | null | undefined;
+export let vodCacheInitError: string | null = null;
 
 function getDb(): Firestore | null {
   if (db !== undefined) return db;
@@ -33,7 +34,8 @@ function getDb(): Firestore | null {
       initializeApp({ credential: cert(json), projectId: json.project_id }, "rf-vod-cache");
     db = getFirestore(app);
   } catch (e) {
-    console.error("[rfVodCache] credencial inválida:", e instanceof Error ? e.message : e);
+    vodCacheInitError = e instanceof Error ? e.message.slice(0, 120) : "error";
+    console.error("[rfVodCache] credencial inválida:", vodCacheInitError);
     db = null;
   }
   return db;

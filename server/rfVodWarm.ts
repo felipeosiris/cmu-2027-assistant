@@ -5,7 +5,7 @@
  */
 import type { Router } from "express";
 import { unlimEmbedsKey, warmUnlimEmbeds } from "./richardflixStream.js";
-import { vodCacheAges, vodCacheEnabled } from "./rfVodCache.js";
+import { vodCacheAges, vodCacheEnabled, vodCacheInitError } from "./rfVodCache.js";
 
 const TMDB_KEY = process.env.TMDB_API_KEY || "26628384794d4a3212ae889044e6340e";
 const TMDB = "https://api.themoviedb.org/3";
@@ -175,8 +175,9 @@ export function mountRfVodWarm(router: Router): void {
   router.get("/stream/warm/health", (_req, res) => {
     res.json({
       firestore: vodCacheEnabled(),
-      saVarPresent: Boolean(process.env.RF_FIREBASE_SA?.trim()),
-      warmKeyPresent: Boolean(process.env.RF_WARM_KEY?.trim()),
+      firestoreError: vodCacheInitError,
+      saVarLength: process.env.RF_FIREBASE_SA?.trim().length ?? 0,
+      warmKeyLength: process.env.RF_WARM_KEY?.trim().length ?? 0,
       running: status.running,
     });
   });
