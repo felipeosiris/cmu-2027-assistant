@@ -892,6 +892,10 @@ function packResolved(
   };
 }
 
+/** Hosts cuya extracción nativa falló hace poco: se sirven directo como embed. */
+const extractFailUntil = new Map<string, number>();
+const EXTRACT_FAIL_TTL_MS = 60 * 60 * 1000;
+
 export async function resolvePlayableStream(
   req: Request,
   opts: {
@@ -973,6 +977,8 @@ export async function resolvePlayableStream(
     if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
     if (host === "direct" || host === "remux") continue;
     if (isIframeOnlyHost(host)) continue;
+    const hostKey = host.replace(/\s*\d+$/, "");
+    if ((extractFailUntil.get(hostKey) ?? 0) > Date.now()) continue;
 
     try {
       const { streamUrl, kind } = await Promise.race([
@@ -982,11 +988,13 @@ export async function resolvePlayableStream(
         ),
       ]);
       if (streamUrl && (kind === "hls" || kind === "mp4")) {
+        extractFailUntil.delete(hostKey);
         return packResolved(streamUrl, kind, referer, host, opts.lang, true, req);
       }
     } catch {
       /* next host */
     }
+    extractFailUntil.set(hostKey, Date.now() + EXTRACT_FAIL_TTL_MS);
   }
 
   for (const [host, embedUrl] of slice) {
