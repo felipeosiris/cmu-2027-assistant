@@ -5,7 +5,7 @@
  */
 import type { Router } from "express";
 import { unlimEmbedsKey, warmUnlimEmbeds } from "./richardflixStream.js";
-import { vodCacheAges, vodCacheEnabled, vodCacheInitError } from "./rfVodCache.js";
+import { vodCacheAges, vodCacheEnabled, vodCacheInitError, vodPinnedSeries } from "./rfVodCache.js";
 
 const TMDB_KEY = process.env.TMDB_API_KEY || "26628384794d4a3212ae889044e6340e";
 const TMDB = "https://api.themoviedb.org/3";
@@ -126,6 +126,31 @@ export async function homeTargets(): Promise<Target[]> {
   return out;
 }
 
+/** Todos los episodios de las series fijadas; van primero en la cola. */
+async function pinnedTargets(): Promise<Target[]> {
+  const out: Target[] = [];
+  for (const id of await vodPinnedSeries()) {
+    try {
+      const res = await fetch(`${TMDB}/tv/${id}?api_key=${TMDB_KEY}&language=es-MX`, {
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) continue;
+      const show = (await res.json()) as {
+        seasons?: Array<{ season_number: number; episode_count: number }>;
+      };
+      for (const s of show.seasons ?? []) {
+        if (!s.season_number) continue;
+        for (let e = 1; e <= s.episode_count; e++) {
+          out.push({ type: "tv", tmdbId: id, season: s.season_number, episode: e });
+        }
+      }
+    } catch {
+      /* siguiente serie */
+    }
+  }
+  return out;
+}
+
 async function runCycle(): Promise<void> {
   Object.assign(status, {
     running: true,
@@ -140,7 +165,9 @@ async function runCycle(): Promise<void> {
     stoppedReason: null,
   });
   try {
-    const targets = await homeTargets();
+    const pinned = await pinnedTargets();
+    const pinnedKeys = new Set(pinned.map(unlimEmbedsKey));
+    const targets = [...pinned, ...(await homeTargets()).filter((t) => !pinnedKeys.has(unlimEmbedsKey(t)))];
     const ages = await vodCacheAges(targets.map(unlimEmbedsKey));
     const now = Date.now();
     const queue = targets.filter((t) => now - (ages.get(unlimEmbedsKey(t)) ?? 0) > STALE_MS);

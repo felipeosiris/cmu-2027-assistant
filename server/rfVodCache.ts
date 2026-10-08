@@ -80,6 +80,19 @@ export async function vodCacheSet(
   }
 }
 
+/** Series que se mantienen completas en caché (colección vodPinned, id = tmdbId). */
+export async function vodPinnedSeries(): Promise<number[]> {
+  const store = getDb();
+  if (!store) return [];
+  try {
+    const snap = await store.collection("vodPinned").get();
+    return snap.docs.map((d) => Number(d.id)).filter((n) => Number.isFinite(n) && n > 0);
+  } catch (e) {
+    console.warn("[rfVodCache] pinned:", e instanceof Error ? e.message : e);
+    return [];
+  }
+}
+
 /** updatedAt de varias llaves en una sola lectura por lote. */
 export async function vodCacheAges(keys: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
