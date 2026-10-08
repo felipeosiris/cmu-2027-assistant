@@ -64,6 +64,19 @@ export async function vodCacheGet(key: string): Promise<VodCacheDoc | null> {
   }
 }
 
+/** Links vimeos: s = emisión (epoch s), e = vigencia en s. Margen de 1 h. */
+function directStillValid(url: string): boolean {
+  try {
+    const q = new URL(url).searchParams;
+    const s = Number(q.get("s"));
+    const e = Number(q.get("e"));
+    if (!s || !e) return false;
+    return (s + e) * 1000 - Date.now() > 60 * 60 * 1000;
+  } catch {
+    return false;
+  }
+}
+
 export async function vodCacheSet(
   key: string,
   data: VodCacheDoc["data"],
@@ -71,10 +84,15 @@ export async function vodCacheSet(
   const store = getDb();
   if (!store) return;
   try {
-    await store
-      .collection(COLLECTION)
-      .doc(docId(key))
-      .set({ data, updatedAt: Date.now() } satisfies VodCacheDoc);
+    const ref = store.collection(COLLECTION).doc(docId(key));
+    if (data && !data.latino?.direct) {
+      const prev = (await ref.get()).data() as VodCacheDoc | undefined;
+      const prevDirect = prev?.data?.latino?.direct;
+      if (prevDirect && directStillValid(prevDirect)) {
+        data = { ...data, latino: { direct: prevDirect, ...(data.latino ?? {}) } };
+      }
+    }
+    await ref.set({ data, updatedAt: Date.now() } satisfies VodCacheDoc);
   } catch (e) {
     console.warn("[rfVodCache] set:", e instanceof Error ? e.message : e);
   }
