@@ -7,8 +7,9 @@
 import type { Request, Response, Router } from "express";
 
 const DATA_BASES = [
-  "https://cdn.jsdelivr.net/gh/famelack/famelack-data@main",
+  // raw primero: jsDelivr a veces responde 403 "Package size exceeded" en archivos grandes.
   "https://raw.githubusercontent.com/famelack/famelack-data/main",
+  "https://cdn.jsdelivr.net/gh/famelack/famelack-data@main",
 ] as const;
 
 /** Emby Live TV (mismo servidor que Cinema SFA). Override con env. */
@@ -318,7 +319,8 @@ function listEmbyChannels(req: Request): Promise<LiveChannel[]> {
 }
 
 async function listCountries(): Promise<CountryMeta[]> {
-  const body = (await fetchJson("/tv/raw/countries_metadata.json")) as Record<
+  // Famelack movió paths: /tv/raw/... → /tv/... (nov 2026).
+  const body = (await fetchJson("/tv/countries_metadata.json")) as Record<
     string,
     { country?: string; capital?: string; hasChannels?: boolean; channelCount?: number }
   >;
@@ -370,7 +372,7 @@ async function listChannels(
     return listEmbyChannels(req);
   }
 
-  const path = `/${kind}/raw/countries/${cc}.json`;
+  const path = `/${kind}/countries/${cc}.json`;
   const body = (await fetchJson(path)) as RawChannel[];
   if (!Array.isArray(body)) return [];
   const out: LiveChannel[] = [];
