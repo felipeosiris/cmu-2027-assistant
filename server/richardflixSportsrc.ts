@@ -138,7 +138,21 @@ function queryFromReq(req: Request): Record<string, string> {
 
 // ——— Normalización / filtros (misma lógica que el cliente RichardFlix) ———
 
-export type SportTab = "en-vivo" | "nba" | "wnba" | "liga-mx" | "leagues-cup" | "nfl";
+export type SportTab =
+  | "en-vivo"
+  | "nba"
+  | "wnba"
+  | "liga-mx"
+  | "leagues-cup"
+  | "nfl"
+  | "nhl"
+  | "f1"
+  | "ufc"
+  | "boxeo"
+  | "lucha"
+  | "wwe"
+  | "mlb"
+  | "tenis";
 
 type SportMatch = {
   id: string;
@@ -615,13 +629,146 @@ const LIVE_CATEGORY_LABEL: Record<string, string> = {
   football: "Fútbol",
   basketball: "Basketball",
   "american-football": "NFL / Football",
-  baseball: "Beisbol",
+  baseball: "Béisbol",
   hockey: "Hockey",
   tennis: "Tenis",
-  mma: "MMA",
+  mma: "UFC / MMA",
   boxing: "Box",
+  wrestling: "Lucha / WWE",
+  motorsport: "F1 / MotoGP",
   other: "Eventos",
 };
+
+/** Tabs de pelea / motor / etc. alimentados solo por Matchora. */
+async function buildMatchoraTab(
+  pred: (ev: MatchoraEvent) => boolean,
+  category: string,
+): Promise<SportMatch[]> {
+  const [live, upcoming] = await Promise.all([
+    fetchMatchoraLive().catch(() => [] as MatchoraEvent[]),
+    fetchMatchoraUpcomingEvents(21),
+  ]);
+  const out: SportMatch[] = [];
+  const seen = new Set<string>();
+  for (const ev of [...live, ...upcoming]) {
+    if (!pred(ev)) continue;
+    const m = matchoraToSportMatch(ev);
+    if (!m || !isUpcomingOrRecent(m)) continue;
+    if (seen.has(m.id)) continue;
+    seen.add(m.id);
+    m.category = category;
+    const league = String(ev.league || "").trim();
+    if (league) m.leagueName = league;
+    out.push(m);
+  }
+  return sortByDateAsc(out);
+}
+
+function isUfcEvent(ev: MatchoraEvent): boolean {
+  const b = matchoraEventBlob(ev);
+  return (
+    /\bufc\b/.test(b) ||
+    /\bbellator\b/.test(b) ||
+    /\bpfl\b/.test(b) ||
+    (/\bmma\b/.test(b) && !/\bbox/.test(b) && !/\bwwe|aew|lucha|cmll/.test(b))
+  );
+}
+
+function isBoxeoEvent(ev: MatchoraEvent): boolean {
+  const b = matchoraEventBlob(ev);
+  if (isUfcEvent(ev)) return false;
+  return (
+    /\bbox(ing|eo)?\b/.test(b) ||
+    /\bbkfc\b/.test(b) ||
+    /bare\s*knuckle/.test(b) ||
+    /premiere\s*boxing/.test(b) ||
+    /dazn\s*boxing/.test(b)
+  );
+}
+
+function isLuchaEvent(ev: MatchoraEvent): boolean {
+  const b = matchoraEventBlob(ev);
+  return (
+    /\baaa\b/.test(b) ||
+    /\bcmll\b/.test(b) ||
+    /lucha(\s*libre)?/.test(b) ||
+    /aaa\s*lucha/.test(b)
+  );
+}
+
+function isWweEvent(ev: MatchoraEvent): boolean {
+  const b = matchoraEventBlob(ev);
+  if (isLuchaEvent(ev)) return false;
+  return (
+    /\bwwe\b/.test(b) ||
+    /\baew\b/.test(b) ||
+    /\bnjpw\b/.test(b) ||
+    /\bnxt\b/.test(b) ||
+    /smack\s*down/.test(b) ||
+    /monday\s+night\s+raw/.test(b) ||
+    /wrestling/.test(b) ||
+    /survivor\s*series/.test(b) ||
+    /royal\s*rumble/.test(b) ||
+    /wrestlemania/.test(b)
+  );
+}
+
+function isF1Event(ev: MatchoraEvent): boolean {
+  const b = matchoraEventBlob(ev);
+  return (
+    /formula\s*1/.test(b) ||
+    /\bf1\b/.test(b) ||
+    /f1\s*academy/.test(b) ||
+    /motogp/.test(b) ||
+    /nascar/.test(b) ||
+    /indycar/.test(b) ||
+    (String(ev.sport || "").toLowerCase() === "motorsport" &&
+      !/horse|racing\s*dog/.test(b))
+  );
+}
+
+function isNhlEvent(ev: MatchoraEvent): boolean {
+  const b = matchoraEventBlob(ev);
+  return /\bnhl\b/.test(b) || (/ice\s*hockey/.test(b) && /\bnhl\b/.test(b));
+}
+
+function isMlbEvent(ev: MatchoraEvent): boolean {
+  const b = matchoraEventBlob(ev);
+  return /\bmlb\b/.test(b) || /major\s*league\s*baseball/.test(b);
+}
+
+function isTenisEvent(ev: MatchoraEvent): boolean {
+  const b = matchoraEventBlob(ev);
+  return (
+    String(ev.sport || "").toLowerCase() === "tennis" ||
+    /\batp\b|\bwta\b|tennis|tenis/.test(b)
+  );
+}
+
+async function buildUfc(): Promise<SportMatch[]> {
+  return buildMatchoraTab(isUfcEvent, "mma");
+}
+async function buildBoxeo(): Promise<SportMatch[]> {
+  return buildMatchoraTab(isBoxeoEvent, "boxing");
+}
+async function buildLucha(): Promise<SportMatch[]> {
+  return buildMatchoraTab(isLuchaEvent, "wrestling");
+}
+async function buildWwe(): Promise<SportMatch[]> {
+  return buildMatchoraTab(isWweEvent, "wrestling");
+}
+async function buildF1(): Promise<SportMatch[]> {
+  return buildMatchoraTab(isF1Event, "motorsport");
+}
+async function buildNhl(): Promise<SportMatch[]> {
+  return buildMatchoraTab(isNhlEvent, "hockey");
+}
+async function buildMlb(): Promise<SportMatch[]> {
+  return buildMatchoraTab(isMlbEvent, "baseball");
+}
+async function buildTenis(): Promise<SportMatch[]> {
+  return buildMatchoraTab(isTenisEvent, "tennis");
+}
 
 function isJunkLiveListing(m: { id?: string; title?: string }): boolean {
   const id = (m.id || "").toLowerCase();
@@ -709,8 +856,41 @@ function matchoraCategory(sport?: string, league?: string): string {
   if (s.includes("baseball") || s.includes("mlb")) return "baseball";
   if (s.includes("tennis")) return "tennis";
   if (s.includes("cricket")) return "cricket";
+  if (
+    s.includes("ufc") ||
+    s.includes("mma") ||
+    s.includes("bellator") ||
+    s.includes("fighting")
+  ) {
+    return "mma";
+  }
+  if (s.includes("box") || s.includes("bkfc") || s.includes("bare knuckle")) return "boxing";
+  if (
+    s.includes("wwe") ||
+    s.includes("aew") ||
+    s.includes("wrestling") ||
+    s.includes("lucha") ||
+    s.includes("cmll") ||
+    /\baaa\b/.test(s)
+  ) {
+    return "wrestling";
+  }
+  if (
+    s.includes("formula") ||
+    s.includes("f1") ||
+    s.includes("motogp") ||
+    s.includes("nascar") ||
+    s.includes("motorsport") ||
+    s.includes("indycar")
+  ) {
+    return "motorsport";
+  }
   if (s.includes("soccer") || s.includes("football") || s.includes("liga")) return "football";
   return "football";
+}
+
+function matchoraEventBlob(ev: MatchoraEvent): string {
+  return `${ev.sport || ""} ${ev.league || ""} ${ev.home || ""} ${ev.away || ""}`.toLowerCase();
 }
 
 function matchoraToSportMatch(ev: MatchoraEvent): SportMatch | null {
@@ -718,19 +898,21 @@ function matchoraToSportMatch(ev: MatchoraEvent): SportMatch | null {
   if (!rawId) return null;
   const home = String(ev.home || "").trim();
   const away = String(ev.away || "").trim();
-  if (!home || !away) return null;
+  // F1 / WWE / UFC suelen venir solo con "home" (nombre del evento).
+  if (!home && !away) return null;
   const category = matchoraCategory(ev.sport, ev.league);
   const kickoffSec = Number(ev.kickoff) || 0;
+  const title = home && away ? `${home} vs ${away}` : home || away;
   return {
     id: matchoraId(rawId),
-    title: `${home} vs ${away}`,
+    title,
     category,
     date: kickoffSec > 1e12 ? kickoffSec : kickoffSec * 1000,
     popular: Boolean(ev.live) || (Number(ev.channel_count) || 0) > 0,
     poster: undefined,
     teams: {
-      home: { name: home, badge: ev.home_badge },
-      away: { name: away, badge: ev.away_badge },
+      ...(home ? { home: { name: home, badge: ev.home_badge } } : {}),
+      ...(away ? { away: { name: away, badge: ev.away_badge } } : {}),
     },
     api: "v1",
     status: ev.live ? "inprogress" : ev.finished ? "finished" : "scheduled",
@@ -1336,6 +1518,14 @@ const TAB_BUILDERS: Record<SportTab, () => Promise<SportMatch[]>> = {
   nfl: buildNfl,
   "liga-mx": buildLigaMx,
   "leagues-cup": buildLeaguesCup,
+  nhl: buildNhl,
+  f1: buildF1,
+  ufc: buildUfc,
+  boxeo: buildBoxeo,
+  lucha: buildLucha,
+  wwe: buildWwe,
+  mlb: buildMlb,
+  tenis: buildTenis,
 };
 
 const TAB_TTL_MS: Record<SportTab, number> = {
@@ -1345,6 +1535,14 @@ const TAB_TTL_MS: Record<SportTab, number> = {
   nfl: 3 * 60 * 1000,
   "liga-mx": 5 * 60 * 1000,
   "leagues-cup": 8 * 60 * 1000,
+  nhl: 3 * 60 * 1000,
+  f1: 5 * 60 * 1000,
+  ufc: 5 * 60 * 1000,
+  boxeo: 5 * 60 * 1000,
+  lucha: 8 * 60 * 1000,
+  wwe: 5 * 60 * 1000,
+  mlb: 5 * 60 * 1000,
+  tenis: 5 * 60 * 1000,
 };
 
 const tabInflight = new Map<SportTab, Promise<SportMatch[]>>();
@@ -1398,6 +1596,10 @@ async function getDetail(opts: {
   if (matchoraRaw) {
     const ev = await fetchMatchoraEvent(matchoraRaw);
     const m = ev ? matchoraToSportMatch(ev) : null;
+    const fallbackTitle =
+      m?.title ||
+      [ev?.home, ev?.away].filter(Boolean).join(" vs ") ||
+      String(ev?.league || opts.id);
     let sources = matchoraChannelsToSources(ev?.channels);
     if (!sources.length) {
       sources = [
@@ -1412,9 +1614,10 @@ async function getDetail(opts: {
       success: true,
       data: {
         id: opts.id,
-        title: m?.title || opts.id,
-        category: opts.category || m?.category || "football",
+        title: fallbackTitle,
+        category: opts.category || m?.category || matchoraCategory(ev?.sport, ev?.league),
         teams: m?.teams,
+        leagueName: m?.leagueName || ev?.league,
         sources,
         provider: "matchora",
       },
