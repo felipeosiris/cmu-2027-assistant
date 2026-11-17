@@ -596,6 +596,152 @@ const WESTREAM_STREAM_BASES = [
   "https://westream.su/stream",
 ] as const;
 
+/** Matchora — reemplazo público de streamed/westream (embeds listos, sin API key). */
+const MATCHORA_LIVE = "https://matchora.to/api/v1/live";
+const MATCHORA_SCHEDULE = "https://matchora.to/api/v1/schedule?watchable=1";
+const MATCHORA_EVENT = "https://matchora.to/api/v1/events";
+
+type MatchoraChannel = {
+  id?: string;
+  name?: string;
+  embed_url?: string;
+  quality?: string;
+  lang?: string;
+  dead?: boolean;
+};
+
+type MatchoraEvent = {
+  id?: string | number;
+  home?: string;
+  away?: string;
+  league?: string;
+  sport?: string;
+  kickoff?: number;
+  live?: boolean;
+  finished?: boolean;
+  home_badge?: string;
+  away_badge?: string;
+  channel_count?: number;
+  channels?: MatchoraChannel[];
+};
+
+function matchoraId(raw: string | number | undefined): string {
+  const id = String(raw ?? "").trim();
+  return id ? `matchora-${id}` : "";
+}
+
+function parseMatchoraId(id: string): string | null {
+  const m = /^matchora-(.+)$/i.exec(id);
+  return m?.[1] || null;
+}
+
+function matchoraCategory(sport?: string, league?: string): string {
+  const s = `${sport || ""} ${league || ""}`.toLowerCase();
+  if (s.includes("nba") || s.includes("wnba") || s.includes("basket")) return "basketball";
+  if (s.includes("nfl") || s.includes("american football") || s.includes("ncaaf")) {
+    return "american-football";
+  }
+  if (s.includes("hockey") || s.includes("nhl") || s.includes("khl")) return "hockey";
+  if (s.includes("baseball") || s.includes("mlb")) return "baseball";
+  if (s.includes("tennis")) return "tennis";
+  if (s.includes("cricket")) return "cricket";
+  if (s.includes("soccer") || s.includes("football") || s.includes("liga")) return "football";
+  return "football";
+}
+
+function matchoraToSportMatch(ev: MatchoraEvent): SportMatch | null {
+  const rawId = String(ev.id ?? "").trim();
+  if (!rawId) return null;
+  const home = String(ev.home || "").trim();
+  const away = String(ev.away || "").trim();
+  if (!home || !away) return null;
+  const category = matchoraCategory(ev.sport, ev.league);
+  const kickoffSec = Number(ev.kickoff) || 0;
+  return {
+    id: matchoraId(rawId),
+    title: `${home} vs ${away}`,
+    category,
+    date: kickoffSec > 1e12 ? kickoffSec : kickoffSec * 1000,
+    popular: Boolean(ev.live) || (Number(ev.channel_count) || 0) > 0,
+    poster: undefined,
+    teams: {
+      home: { name: home, badge: ev.home_badge },
+      away: { name: away, badge: ev.away_badge },
+    },
+    api: "v1",
+    status: ev.live ? "inprogress" : ev.finished ? "finished" : "scheduled",
+    leagueName: String(ev.league || "").trim() || undefined,
+  };
+}
+
+function matchoraChannelsToSources(channels: MatchoraChannel[] | undefined): StreamOption[] {
+  const out: StreamOption[] = [];
+  for (const ch of channels || []) {
+    const embed = (ch.embed_url || "").trim();
+    if (!embed || ch.dead) continue;
+    out.push({
+      id: ch.id ? `matchora-ch-${ch.id}` : undefined,
+      embedUrl: embed,
+      source: ch.name || "matchora",
+      language: ch.lang,
+      hd: /fhd|hd|4k/i.test(String(ch.quality || "")),
+    });
+  }
+  return mergeStreamOptions(out);
+}
+
+async function fetchMatchoraLive(): Promise<MatchoraEvent[]> {
+  const body = await fetchExternalJson<{ events?: MatchoraEvent[] }>(MATCHORA_LIVE, 45_000);
+  return Array.isArray(body?.events) ? body!.events! : [];
+}
+
+async function fetchMatchoraSchedule(): Promise<MatchoraEvent[]> {
+  const body = await fetchExternalJson<{ events?: MatchoraEvent[] }>(MATCHORA_SCHEDULE, 90_000);
+  return Array.isArray(body?.events) ? body!.events! : [];
+}
+
+async function fetchMatchoraEvent(eventId: string): Promise<MatchoraEvent | null> {
+  const body = await fetchExternalJson<MatchoraEvent>(
+    `${MATCHORA_EVENT}/${encodeURIComponent(eventId)}`,
+    60_000,
+  );
+  return body?.id != null ? body : null;
+}
+
+async function matchoraSourcesByMatchup(
+  title: string | undefined,
+  teams: SportMatch["teams"] | undefined,
+): Promise<StreamOption[]> {
+  const key = matchupKey(title || "", teams);
+  if (!key) return [];
+  const [live, schedule] = await Promise.all([fetchMatchoraLive(), fetchMatchoraSchedule()]);
+  const hits = [...live, ...schedule].filter((ev) => {
+    const m = matchoraToSportMatch(ev);
+    if (!m) return false;
+    return matchupKey(m.title, m.teams) === key;
+  });
+  if (!hits.length) return [];
+
+  const out: StreamOption[] = [];
+  for (const hit of hits.slice(0, 3)) {
+    if (hit.channels?.length) {
+      out.push(...matchoraChannelsToSources(hit.channels));
+      continue;
+    }
+    const detail = await fetchMatchoraEvent(String(hit.id));
+    if (detail?.channels?.length) out.push(...matchoraChannelsToSources(detail.channels));
+    else {
+      // Embed genérico del partido si no hay canales aún.
+      out.push({
+        id: `matchora-match-${hit.id}`,
+        embedUrl: `https://matchora.to/embed/match/${hit.id}`,
+        source: "matchora",
+      });
+    }
+  }
+  return mergeStreamOptions(out);
+}
+
 async function fetchExternalJson<T>(url: string, ttlMs = 90_000): Promise<T | null> {
   const id = cacheKey(`ext:${url}`);
   const fresh = getCached(id, { allowStale: false });
@@ -625,6 +771,7 @@ function scoreEmbed(s: StreamOption): number {
   // embed.st directo: menos iframes anidados. streamapi suele ser wrapper al mismo feed.
   if (url.includes("embed.st/embed/")) n += 90;
   if (url.includes("football77.org")) n += 70;
+  if (url.includes("matchora.")) n += 65;
   if (url.includes("westream.su/embed")) n += 55;
   if (url.includes("embed.streamapi.cc")) n += 25;
   if (url.includes("mutstreams")) n -= 100;
@@ -632,6 +779,7 @@ function scoreEmbed(s: StreamOption): number {
   if (s.hd) n += 5;
   if ((s.source || "").toLowerCase() === "admin") n += 8;
   if ((s.source || "").toLowerCase() === "delta") n += 2;
+  if ((s.source || "").toLowerCase() === "matchora") n += 6;
   return n;
 }
 
@@ -882,12 +1030,30 @@ async function enrichSourcesFromWeStream(
   existing: StreamOption[],
   meta?: { title?: string; teams?: SportMatch["teams"] },
 ): Promise<StreamOption[]> {
+  const matchoraRaw = parseMatchoraId(matchId);
+  if (matchoraRaw) {
+    const ev = await fetchMatchoraEvent(matchoraRaw);
+    const fromEvent = matchoraChannelsToSources(ev?.channels);
+    if (fromEvent.length) return mergeStreamOptions(existing, fromEvent);
+    return mergeStreamOptions(existing, [
+      {
+        id: `matchora-match-${matchoraRaw}`,
+        embedUrl: `https://matchora.to/embed/match/${matchoraRaw}`,
+        source: "matchora",
+      },
+    ]);
+  }
+
   const ws = await findWeStreamMatch(matchId, category);
   const fromSelf = ws?.sources?.length
     ? await resolveWeStreamSourceRefs(ws.sources)
     : [];
   const fromId = await sportSrcSourcesForMatch(matchId, category || "football");
-  const ready = mergeStreamOptions(existing, fromId, fromSelf);
+  const fromMatchora = await matchoraSourcesByMatchup(
+    meta?.title || ws?.title,
+    meta?.teams || ws?.teams,
+  );
+  const ready = mergeStreamOptions(existing, fromId, fromSelf, fromMatchora);
   if (ready.length) return ready;
 
   const siblings = await findSiblingStreamSources(
@@ -904,11 +1070,50 @@ async function enrichSourcesFromWeStream(
   return mergeStreamOptions(ready, siblings, byMatchup);
 }
 
-/** Listado rápido: WeStream live. Los embeds se resuelven en /sports/detail. */
-async function buildEnVivo(): Promise<SportMatch[]> {
-  const live = (await fetchExternalJson<WeStreamMatchRaw[]>(WESTREAM_MATCHES_LIVE, 60_000)) || [];
-  const out: SportMatch[] = [];
+async function buildEnVivoFromSportSrcV2(): Promise<SportMatch[]> {
+  try {
+    const all = await listSportSrcV2FootballRecent();
+    return all.filter((m) => (m.status || "").toLowerCase() === "inprogress");
+  } catch {
+    return [];
+  }
+}
 
+/** Listado en vivo: Matchora (priario) + SportSRC v2 + WeStream si aún responde. */
+async function buildEnVivo(): Promise<SportMatch[]> {
+  const out: SportMatch[] = [];
+  const seen = new Set<string>();
+  const push = (m: SportMatch) => {
+    if (!m.id || seen.has(m.id) || isJunkLiveListing(m)) return;
+    const key = matchupKey(m.title, m.teams);
+    if (key && [...seen].some((id) => {
+      const prev = out.find((x) => x.id === id);
+      return prev ? matchupKey(prev.title, prev.teams) === key : false;
+    })) {
+      return;
+    }
+    seen.add(m.id);
+    out.push(m);
+  };
+
+  try {
+    for (const ev of await fetchMatchoraLive()) {
+      const m = matchoraToSportMatch(ev);
+      if (!m || !ev.live) continue;
+      if (m.leagueName) {
+        m.leagueName = m.leagueName;
+      } else {
+        m.leagueName = LIVE_CATEGORY_LABEL[m.category] || m.category;
+      }
+      push(m);
+    }
+  } catch {
+    /* Matchora caído */
+  }
+
+  for (const m of await buildEnVivoFromSportSrcV2()) push(m);
+
+  const live = (await fetchExternalJson<WeStreamMatchRaw[]>(WESTREAM_MATCHES_LIVE, 60_000)) || [];
   for (const raw of live) {
     const id = String(raw.id || "");
     if (!id || isJunkLiveListing(raw)) continue;
@@ -925,7 +1130,7 @@ async function buildEnVivo(): Promise<SportMatch[]> {
         : 5 * 60 * 60 * 1000;
     if (ageMs > maxAge) continue;
 
-    out.push({
+    push({
       id,
       title: String(raw.title || id),
       category,
@@ -1000,11 +1205,40 @@ async function getDetail(opts: {
   id: string;
   category?: string;
 }): Promise<{ body: unknown; cache: string }> {
-  const enrichedKey = cacheKey(`detail-enriched:v3:${opts.api}:${opts.category || ""}:${opts.id}`);
+  const enrichedKey = cacheKey(`detail-enriched:v4:${opts.api}:${opts.category || ""}:${opts.id}`);
   const enrichedHit = getCached(enrichedKey, { allowStale: false });
   if (enrichedHit) {
     const cachedSources = extractSourcesFromSportSrcBody(enrichedHit.body);
     if (cachedSources.length) return { body: enrichedHit.body, cache: "HIT" };
+  }
+
+  const matchoraRaw = parseMatchoraId(opts.id);
+  if (matchoraRaw) {
+    const ev = await fetchMatchoraEvent(matchoraRaw);
+    const m = ev ? matchoraToSportMatch(ev) : null;
+    let sources = matchoraChannelsToSources(ev?.channels);
+    if (!sources.length) {
+      sources = [
+        {
+          id: `matchora-match-${matchoraRaw}`,
+          embedUrl: `https://matchora.to/embed/match/${matchoraRaw}`,
+          source: "matchora",
+        },
+      ];
+    }
+    const body = {
+      success: true,
+      data: {
+        id: opts.id,
+        title: m?.title || opts.id,
+        category: opts.category || m?.category || "football",
+        teams: m?.teams,
+        sources,
+        provider: "matchora",
+      },
+    };
+    setCached(enrichedKey, body, 60_000);
+    return { body, cache: "MISS" };
   }
 
   if (opts.api === "v2") {

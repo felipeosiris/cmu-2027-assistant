@@ -237,6 +237,45 @@ function embedLangParams(lang: StreamLang): { multi: string; ds: string } {
   return { multi: "latino", ds: "es" };
 }
 
+/** UnlimPlay cps/mf wrappers: ya no resuelven HLS (502). No servirlos como stream/embed. */
+function isBrokenUnlimUrl(url: string): boolean {
+  try {
+    const u = new URL(url);
+    if (!/unlimplay\.com$/i.test(u.hostname) && !/\.unlimplay\.com$/i.test(u.hostname)) {
+      return false;
+    }
+    return /\/(cps|mf)\.php$/i.test(u.pathname) || u.pathname.includes("/cps.php");
+  } catch {
+    return /unlimplay\.com\/(cps|mf)\.php/i.test(url);
+  }
+}
+
+function trackHasPlayableExternal(track: Record<string, string>): boolean {
+  for (const [host, url] of Object.entries(track)) {
+    if (host === "searched_names" || host === "direct" || host === "remux") continue;
+    if (typeof url !== "string" || !url.startsWith("http")) continue;
+    if (isBrokenUnlimUrl(url)) continue;
+    if (/unlimplay\.com/i.test(url) && /\/(f\/)?(play\/)?embed\//i.test(url)) continue;
+    return true;
+  }
+  return false;
+}
+
+function embedsLookUsable(embeds: EmbedsMap): boolean {
+  for (const [lang, track] of Object.entries(embeds)) {
+    if (lang === "searched_names" || !track || typeof track !== "object") continue;
+    if (typeof track.direct === "string" && track.direct.startsWith("http") && !isBrokenUnlimUrl(track.direct)) {
+      return true;
+    }
+    if (typeof track.remux === "string" && track.remux.startsWith("http") && !isBrokenUnlimUrl(track.remux)) {
+      return true;
+    }
+    if (trackHasPlayableExternal(track)) return true;
+    // cps.php/mf.php solos no cuentan: hay que caer a embeds públicos.
+  }
+  return false;
+}
+
 function fallbackEmbedList(opts: {
   type: StreamMediaType;
   tmdbId: number;
@@ -251,9 +290,14 @@ function fallbackEmbedList(opts: {
     const e = opts.episode ?? 1;
     return [
       {
-        host: "multiembed",
-        url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&lang=${multi}`,
-        referer: "https://multiembed.mov/",
+        host: "vidfast",
+        url: `https://vidfast.pro/tv/${id}/${s}/${e}?lang=${ds}`,
+        referer: "https://vidfast.pro/",
+      },
+      {
+        host: "vidlink",
+        url: `https://vidlink.pro/tv/${id}/${s}/${e}`,
+        referer: "https://vidlink.pro/",
       },
       {
         host: "vidsrc",
@@ -261,22 +305,37 @@ function fallbackEmbedList(opts: {
         referer: "https://vidsrc.to/",
       },
       {
-        host: "vidsrc-pm",
-        url: `https://vidsrc.pm/embed/tv/${id}/${s}/${e}?ds_lang=${ds}`,
-        referer: "https://vidsrc.pm/",
+        host: "multiembed",
+        url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&lang=${multi}`,
+        referer: "https://multiembed.mov/",
       },
       {
         host: "2embed",
         url: `https://www.2embed.cc/embedtv/${id}&s=${s}&e=${e}`,
         referer: "https://www.2embed.cc/",
       },
+      {
+        host: "autoembed",
+        url: `https://autoembed.co/tv/tmdb/${id}-${s}-${e}`,
+        referer: "https://autoembed.co/",
+      },
+      {
+        host: "vidsrc-me",
+        url: `https://vidsrc.me/embed/tv?tmdb=${id}&season=${s}&episode=${e}`,
+        referer: "https://vidsrc.me/",
+      },
     ];
   }
   return [
     {
-      host: "multiembed",
-      url: `https://multiembed.mov/?video_id=${id}&tmdb=1&lang=${multi}`,
-      referer: "https://multiembed.mov/",
+      host: "vidfast",
+      url: `https://vidfast.pro/movie/${id}?lang=${ds}`,
+      referer: "https://vidfast.pro/",
+    },
+    {
+      host: "vidlink",
+      url: `https://vidlink.pro/movie/${id}`,
+      referer: "https://vidlink.pro/",
     },
     {
       host: "vidsrc",
@@ -284,14 +343,24 @@ function fallbackEmbedList(opts: {
       referer: "https://vidsrc.to/",
     },
     {
-      host: "vidsrc-pm",
-      url: `https://vidsrc.pm/embed/movie/${id}?ds_lang=${ds}`,
-      referer: "https://vidsrc.pm/",
+      host: "multiembed",
+      url: `https://multiembed.mov/?video_id=${id}&tmdb=1&lang=${multi}`,
+      referer: "https://multiembed.mov/",
     },
     {
       host: "2embed",
       url: `https://www.2embed.cc/embed/${id}`,
       referer: "https://www.2embed.cc/",
+    },
+    {
+      host: "autoembed",
+      url: `https://autoembed.co/movie/tmdb/${id}`,
+      referer: "https://autoembed.co/",
+    },
+    {
+      host: "vidsrc-me",
+      url: `https://vidsrc.me/embed/movie?tmdb=${id}`,
+      referer: "https://vidsrc.me/",
     },
   ];
 }
@@ -464,17 +533,19 @@ export async function fetchUnlimEmbeds(
   const key = unlimEmbedsKey(opts);
   if (!fresh) {
     const cached = cacheGet<EmbedsMap>(key);
-    if (cached) return cached;
+    // Ignorar mapas en caché que solo traen cps.php/mf.php muertos.
+    if (cached && embedsLookUsable(cached)) return cached;
     const stored = await vodCacheGet(key);
-    if (stored) {
-      if (stored.data) cacheSet(key, stored.data, 20 * 60 * 1000);
+    if (stored?.data && embedsLookUsable(stored.data)) {
+      cacheSet(key, stored.data, 20 * 60 * 1000);
       return stored.data;
     }
   }
 
   const { data, cacheable } = await fetchUnlimEmbedsLive(opts);
-  if (data) cacheSet(key, data, 20 * 60 * 1000);
-  if (cacheable) await vodCacheSet(key, data);
+  if (data && embedsLookUsable(data)) cacheSet(key, data, 20 * 60 * 1000);
+  // Solo persistir mapas útiles; no re-envenenar Firestore con cps.php.
+  if (cacheable && data && embedsLookUsable(data)) await vodCacheSet(key, data);
   return data;
 }
 
@@ -896,6 +967,27 @@ function packResolved(
 const extractFailUntil = new Map<string, number>();
 const EXTRACT_FAIL_TTL_MS = 60 * 60 * 1000;
 
+function pickFallbackEmbed(
+  opts: {
+    type: StreamMediaType;
+    tmdbId: number;
+    season?: number;
+    episode?: number;
+    lang: StreamLang;
+    hostIndex?: number;
+  },
+): { mode: "embed"; url: string; referer: string; host: string; lang: StreamLang } {
+  const list = fallbackEmbedList(opts);
+  const pick = list[Math.min(Math.max(0, opts.hostIndex ?? 0), list.length - 1)]!;
+  return {
+    mode: "embed",
+    url: pick.url,
+    referer: pick.referer,
+    host: pick.host,
+    lang: opts.lang,
+  };
+}
+
 export async function resolvePlayableStream(
   req: Request,
   opts: {
@@ -907,45 +999,56 @@ export async function resolvePlayableStream(
     hostIndex?: number;
   },
 ): Promise<ResolvedStream | { mode: "embed"; url: string; referer: string; host: string; lang: StreamLang } | null> {
-  const embeds = await fetchUnlimEmbeds(opts);
-  if (!embeds) {
-    const list = fallbackEmbedList(opts);
-    const pick = list[Math.min(Math.max(0, opts.hostIndex ?? 0), list.length - 1)]!;
-    return {
-      mode: "embed",
-      url: pick.url,
-      referer: pick.referer,
-      host: pick.host,
-      lang: opts.lang,
-    };
+  const embedsRaw = await fetchUnlimEmbeds(opts);
+  // Si el mapa solo trae cps.php/mf.php muertos, saltar a embeds públicos (salvo remux/direct validable).
+  const onlyBrokenUnlim = Boolean(embedsRaw) && !embedsLookUsable(embedsRaw || {});
+
+  if (!embedsRaw) {
+    return pickFallbackEmbed(opts);
   }
 
-  const langs = orderedLangs(opts.lang, embeds);
+  const langs = orderedLangs(opts.lang, embedsRaw);
   const referer = embedReferer(opts);
   const idx = Math.max(0, opts.hostIndex ?? 0);
 
   // Preferir native en el primer intento. Si hostIndex>0 el cliente ya falló direct/remux.
   if (idx === 0) {
     for (const lang of langs) {
-      const track = embeds[lang] || pickTrack(embeds, lang);
+      const track = embedsRaw[lang] || pickTrack(embedsRaw, lang);
       if (!track) continue;
       const direct = track.direct;
-      if (typeof direct === "string" && direct.includes(".m3u8")) {
+      if (typeof direct === "string" && (direct.includes(".m3u8") || isBrokenUnlimUrl(direct))) {
+        if (isBrokenUnlimUrl(direct)) {
+          // cps.php: validar; si falla, no devolver validated:false (rompe el player).
+          const { streamUrl, kind } = await resolveHostStream("direct", direct, referer);
+          if (streamUrl && kind === "hls") {
+            const validated = await Promise.race([
+              isReachablePlaylist(streamUrl, referer),
+              new Promise<boolean>((r) => setTimeout(() => r(false), 2500)),
+            ]);
+            if (validated) {
+              return packResolved(streamUrl, "hls", referer, "direct", lang, true, req);
+            }
+          }
+          continue;
+        }
         const { streamUrl, kind } = await resolveHostStream("direct", direct, referer);
         if (streamUrl && kind === "hls") {
-          // No bloquear en probe CDN: el proxy HLS suele reproducir igual.
           const validated = await Promise.race([
             isReachablePlaylist(streamUrl, referer),
             new Promise<boolean>((r) => setTimeout(() => r(false), 2500)),
           ]);
-          return packResolved(streamUrl, "hls", referer, "direct", lang, validated, req);
+          if (validated) {
+            return packResolved(streamUrl, "hls", referer, "direct", lang, true, req);
+          }
         }
       }
     }
 
     for (const lang of langs) {
-      const track = embeds[lang] || pickTrack(embeds, lang);
+      const track = embedsRaw[lang] || pickTrack(embedsRaw, lang);
       if (!track?.remux || typeof track.remux !== "string") continue;
+      if (isBrokenUnlimUrl(track.remux)) continue;
       const { streamUrl, kind } = await resolveHostStream("remux", track.remux, referer);
       if (streamUrl && kind === "mp4") {
         return packResolved(streamUrl, "mp4", `${UNLIM}/`, "remux", lang, true, req);
@@ -960,8 +1063,14 @@ export async function resolvePlayableStream(
     }
   }
 
-  const track = pickTrack(embeds, opts.lang);
-  if (!track) return fallbackVidSrc(opts);
+  if (onlyBrokenUnlim) {
+    // Unlim mapa podrido → cadena pública (vidfast/vidsrc/…).
+    unlimDownUntil = Date.now() + UNLIM_DOWN_TTL_MS;
+    return pickFallbackEmbed(opts);
+  }
+
+  const track = pickTrack(embedsRaw, opts.lang);
+  if (!track) return pickFallbackEmbed(opts);
 
   const ordered = HOST_PRIORITY.filter((h) => track[h]).map((h) => [h, track[h]] as const);
   const extras = Object.entries(track).filter(
@@ -976,6 +1085,7 @@ export async function resolvePlayableStream(
     if (Date.now() > deadline) break;
     if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
     if (host === "direct" || host === "remux") continue;
+    if (isBrokenUnlimUrl(embedUrl)) continue;
     if (isIframeOnlyHost(host)) continue;
     const hostKey = host.replace(/\s*\d+$/, "");
     if ((extractFailUntil.get(hostKey) ?? 0) > Date.now()) continue;
@@ -987,7 +1097,12 @@ export async function resolvePlayableStream(
           setTimeout(() => resolve({ streamUrl: null, kind: "embed" }), 4000),
         ),
       ]);
-      if (streamUrl && (kind === "hls" || kind === "mp4")) {
+      if (streamUrl && (kind === "hls" || kind === "mp4") && !isBrokenUnlimUrl(streamUrl)) {
+        const ok = await Promise.race([
+          validateStream(streamUrl, referer),
+          new Promise<boolean>((r) => setTimeout(() => r(false), 2500)),
+        ]);
+        if (!ok) continue;
         extractFailUntil.delete(hostKey);
         return packResolved(streamUrl, kind, referer, host, opts.lang, true, req);
       }
@@ -1000,6 +1115,7 @@ export async function resolvePlayableStream(
   for (const [host, embedUrl] of slice) {
     if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
     if (host === "direct" || host === "remux") continue;
+    if (isBrokenUnlimUrl(embedUrl)) continue;
     if (/unlimplay\.com/i.test(embedUrl) && /\/(f\/)?(play\/)?embed\//i.test(embedUrl)) continue;
     return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
   }
@@ -1007,11 +1123,12 @@ export async function resolvePlayableStream(
   for (const [host, embedUrl] of allHosts) {
     if (typeof embedUrl !== "string" || !embedUrl.startsWith("http")) continue;
     if (host === "direct" || host === "remux") continue;
+    if (isBrokenUnlimUrl(embedUrl)) continue;
     if (/unlimplay\.com/i.test(embedUrl) && /\/(f\/)?(play\/)?embed\//i.test(embedUrl)) continue;
     return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
   }
 
-  return fallbackVidSrc(opts);
+  return pickFallbackEmbed(opts);
 }
 
 function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Request, stripSubs: boolean): string {
@@ -1077,8 +1194,8 @@ export function mountRichardflixStream(router: Router): void {
 
     try {
       const embeds = await fetchUnlimEmbeds({ type, tmdbId, season, episode });
-      if (!embeds) {
-        const list = fallbackEmbedList({ type, tmdbId, season, episode, lang });
+      const list = fallbackEmbedList({ type, tmdbId, season, episode, lang });
+      if (!embeds || !embedsLookUsable(embeds)) {
         const track = Object.fromEntries(list.map((e) => [e.host, e.url]));
         res.setHeader("Cache-Control", "public, max-age=60");
         res.json({
@@ -1092,18 +1209,27 @@ export function mountRichardflixStream(router: Router): void {
         return;
       }
       const track = pickTrack(embeds, lang) ?? embeds.latino ?? {};
-      const ordered = HOST_PRIORITY.filter((h) => track[h]);
+      const ordered = HOST_PRIORITY.filter((h) => track[h] && !isBrokenUnlimUrl(String(track[h])));
       const extras = Object.keys(track).filter(
-        (k) => k !== "searched_names" && !HOST_PRIORITY.includes(k as (typeof HOST_PRIORITY)[number]),
+        (k) =>
+          k !== "searched_names" &&
+          !HOST_PRIORITY.includes(k as (typeof HOST_PRIORITY)[number]) &&
+          !isBrokenUnlimUrl(String(track[k])),
       );
-      const hosts = [...ordered, ...extras];
+      const hosts = [...ordered, ...extras, ...list.map((e) => e.host).filter((h) => !ordered.includes(h as (typeof HOST_PRIORITY)[number]) && !extras.includes(h))];
+      const mergedTrack = {
+        ...Object.fromEntries(
+          Object.entries(track).filter(([, u]) => typeof u === "string" && !isBrokenUnlimUrl(u)),
+        ),
+        ...Object.fromEntries(list.map((e) => [e.host, e.url])),
+      };
       res.setHeader("Cache-Control", "public, max-age=300");
       res.json({
         ok: true,
         lang,
         langs: Object.keys(embeds).filter((k) => k !== "searched_names"),
         hosts,
-        track,
+        track: mergedTrack,
       });
     } catch (e) {
       res.status(502).json({ ok: false, error: e instanceof Error ? e.message : "sources error" });

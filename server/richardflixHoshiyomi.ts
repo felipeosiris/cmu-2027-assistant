@@ -464,17 +464,48 @@ export async function searchTrialDramas(
   return items;
 }
 
+let lastHoshiAuthErrorAt = 0;
+
+async function probeHoshiKey(): Promise<"ok" | "invalid" | "missing"> {
+  if (!apiKey()) return "missing";
+  if (Date.now() - lastHoshiAuthErrorAt < 10 * 60 * 1000) return "invalid";
+  try {
+    // Endpoint liviano de docs; basta para detectar 401 de key vencida.
+    await hoshiFetch("/api/languages");
+    return "ok";
+  } catch (e) {
+    const status = (e as Error & { status?: number }).status;
+    const msg = e instanceof Error ? e.message : String(e);
+    if (status === 401 || status === 403 || /unauthor|invalid.?key|expired|api.?key/i.test(msg)) {
+      lastHoshiAuthErrorAt = Date.now();
+      return "invalid";
+    }
+    // Otros errores (timeout/5xx/404): no marcar key muerta; el catálogo lo confirma.
+    return "ok";
+  }
+}
+
 export async function fetchTrialHome(lang = "es"): Promise<{
   rows: Array<{ provider: string; label: string; items: TrialDramaCard[] }>;
   hasKey: boolean;
+  keyInvalid?: boolean;
 }> {
   if (!apiKey()) {
-    return { rows: [], hasKey: false };
+    return { rows: [], hasKey: false, keyInvalid: false };
+  }
+
+  const auth = await probeHoshiKey();
+  if (auth === "invalid") {
+    return {
+      rows: [],
+      hasKey: true,
+      keyInvalid: true,
+    };
   }
 
   const cacheKey = `hoshi:home:catalog-v2:${lang}`;
   const hit = cacheGet<{ rows: Array<{ provider: string; label: string; items: TrialDramaCard[] }> }>(cacheKey);
-  if (hit) return { ...hit, hasKey: true };
+  if (hit) return { ...hit, hasKey: true, keyInvalid: false };
 
   const preferred: HoshiyomiPlatform[] = [
     "pinedrama",
@@ -509,8 +540,8 @@ export async function fetchTrialHome(lang = "es"): Promise<{
   }
 
   const body = { rows };
-  cacheSet(cacheKey, body, 15 * 60 * 1000);
-  return { ...body, hasKey: true };
+  if (rows.length) cacheSet(cacheKey, body, 15 * 60 * 1000);
+  return { ...body, hasKey: true, keyInvalid: false };
 }
 
 export async function fetchTrialDetail(
