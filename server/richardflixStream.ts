@@ -230,11 +230,36 @@ function fallbackVidSrc(opts: {
   };
 }
 
-/** Params de idioma para embeds externos (Unlim caído → priorizar latino/es). */
-function embedLangParams(lang: StreamLang): { multi: string; ds: string } {
-  if (lang === "subtitulado") return { multi: "english", ds: "en" };
-  if (lang === "espanol") return { multi: "spanish", ds: "es" };
-  return { multi: "latino", ds: "es" };
+/** Params de idioma para embeds externos (Unlim a veces etiqueta mal el audio). */
+function embedLangParams(lang: StreamLang): { multi: string; ds: string; vf: string } {
+  if (lang === "subtitulado") return { multi: "english", ds: "en", vf: "en" };
+  if (lang === "espanol") return { multi: "spanish", ds: "es", vf: "es" };
+  // vidfast acepta lang=latino; multiembed lang=latino. No usar solo "es" (cae a castellano/EN).
+  return { multi: "latino", ds: "es", vf: "latino" };
+}
+
+/** Hosts Unlim sin control real de audio (suelen ser el original en inglés). */
+const LANG_UNRELIABLE_HOSTS = new Set([
+  "vidhide",
+  "filelions",
+  "earnvids",
+  "earnvid",
+  "streamwish",
+  "voe",
+  "filemoon",
+  "netu",
+  "netu2",
+  "doodstream",
+  "dood",
+  "streamtape",
+  "streamhg",
+  "goodstream",
+  "vimeos",
+  "videoapp",
+]);
+
+function isLangUnreliableHost(name: string): boolean {
+  return LANG_UNRELIABLE_HOSTS.has(hostBase(name));
 }
 
 /** UnlimPlay cps/mf wrappers: ya no resuelven HLS (502). No servirlos como stream/embed. */
@@ -283,21 +308,22 @@ function fallbackEmbedList(opts: {
   episode?: number;
   lang: StreamLang;
 }): Array<{ host: string; url: string; referer: string }> {
-  const { multi, ds } = embedLangParams(opts.lang);
+  const { multi, ds, vf } = embedLangParams(opts.lang);
   const id = opts.tmdbId;
+  // multiembed / vidfast respetan idioma; el resto es respaldo.
   if (opts.type === "tv") {
     const s = opts.season ?? 1;
     const e = opts.episode ?? 1;
     return [
       {
-        host: "vidfast",
-        url: `https://vidfast.pro/tv/${id}/${s}/${e}?lang=${ds}`,
-        referer: "https://vidfast.pro/",
+        host: "multiembed",
+        url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&lang=${multi}`,
+        referer: "https://multiembed.mov/",
       },
       {
-        host: "vidlink",
-        url: `https://vidlink.pro/tv/${id}/${s}/${e}`,
-        referer: "https://vidlink.pro/",
+        host: "vidfast",
+        url: `https://vidfast.pro/tv/${id}/${s}/${e}?lang=${vf}`,
+        referer: "https://vidfast.pro/",
       },
       {
         host: "vidsrc",
@@ -305,9 +331,9 @@ function fallbackEmbedList(opts: {
         referer: "https://vidsrc.to/",
       },
       {
-        host: "multiembed",
-        url: `https://multiembed.mov/?video_id=${id}&tmdb=1&s=${s}&e=${e}&lang=${multi}`,
-        referer: "https://multiembed.mov/",
+        host: "vidlink",
+        url: `https://vidlink.pro/tv/${id}/${s}/${e}?lang=${vf}`,
+        referer: "https://vidlink.pro/",
       },
       {
         host: "2embed",
@@ -328,14 +354,14 @@ function fallbackEmbedList(opts: {
   }
   return [
     {
-      host: "vidfast",
-      url: `https://vidfast.pro/movie/${id}?lang=${ds}`,
-      referer: "https://vidfast.pro/",
+      host: "multiembed",
+      url: `https://multiembed.mov/?video_id=${id}&tmdb=1&lang=${multi}`,
+      referer: "https://multiembed.mov/",
     },
     {
-      host: "vidlink",
-      url: `https://vidlink.pro/movie/${id}`,
-      referer: "https://vidlink.pro/",
+      host: "vidfast",
+      url: `https://vidfast.pro/movie/${id}?lang=${vf}`,
+      referer: "https://vidfast.pro/",
     },
     {
       host: "vidsrc",
@@ -343,9 +369,9 @@ function fallbackEmbedList(opts: {
       referer: "https://vidsrc.to/",
     },
     {
-      host: "multiembed",
-      url: `https://multiembed.mov/?video_id=${id}&tmdb=1&lang=${multi}`,
-      referer: "https://multiembed.mov/",
+      host: "vidlink",
+      url: `https://vidlink.pro/movie/${id}?lang=${vf}`,
+      referer: "https://vidlink.pro/",
     },
     {
       host: "2embed",
@@ -1009,17 +1035,25 @@ export async function resolvePlayableStream(
   const embedsRaw = await fetchUnlimEmbeds(opts);
   // Si el mapa solo trae cps.php/mf.php muertos, saltar a embeds públicos (salvo remux/direct validable).
   const onlyBrokenUnlim = Boolean(embedsRaw) && !embedsLookUsable(embedsRaw || {});
+  const publicList = fallbackEmbedList(opts);
+  const preferPublicLang = opts.lang === "latino" || opts.lang === "espanol";
+  const idx = Math.max(0, opts.hostIndex ?? 0);
 
   if (!embedsRaw) {
     return pickFallbackEmbed(opts);
   }
 
+  // Latino/español: priorizar embeds que piden idioma (multiembed/vidfast).
+  // Unlim "latino" a menudo es audio original en inglés (p.ej. Silicon Valley).
+  if (preferPublicLang && idx < publicList.length) {
+    return pickFallbackEmbed(opts);
+  }
+
   const langs = orderedLangs(opts.lang, embedsRaw);
   const referer = embedReferer(opts);
-  const idx = Math.max(0, opts.hostIndex ?? 0);
 
   // Preferir native en el primer intento. Si hostIndex>0 el cliente ya falló direct/remux.
-  if (idx === 0) {
+  if (idx === 0 || (preferPublicLang && idx >= publicList.length)) {
     for (const lang of langs) {
       const track = embedsRaw[lang] || pickTrack(embedsRaw, lang);
       if (!track) continue;
@@ -1083,8 +1117,12 @@ export async function resolvePlayableStream(
   const extras = Object.entries(track).filter(
     ([h]) => h !== "searched_names" && !HOST_PRIORITY.includes(h as (typeof HOST_PRIORITY)[number]),
   );
-  const allHosts = [...ordered, ...extras];
-  const slice = allHosts.slice(idx);
+  // Para latino/español, dejar hosts sin control de audio al final.
+  const reliable = [...ordered, ...extras].filter(([h]) => !isLangUnreliableHost(h));
+  const unreliable = [...ordered, ...extras].filter(([h]) => isLangUnreliableHost(h));
+  const allHosts = preferPublicLang ? [...reliable, ...unreliable] : [...ordered, ...extras];
+  const unlimIdx = preferPublicLang ? Math.max(0, idx - publicList.length) : idx;
+  const slice = allHosts.slice(unlimIdx);
 
   // Intentar extracción limpia en pocos hosts (con tope de tiempo total).
   const deadline = Date.now() + 12000;
@@ -1094,6 +1132,7 @@ export async function resolvePlayableStream(
     if (host === "direct" || host === "remux") continue;
     if (isBrokenUnlimUrl(embedUrl)) continue;
     if (isIframeOnlyHost(host)) continue;
+    if (preferPublicLang && isLangUnreliableHost(host)) continue;
     const hostKey = host.replace(/\s*\d+$/, "");
     if ((extractFailUntil.get(hostKey) ?? 0) > Date.now()) continue;
 
@@ -1124,7 +1163,12 @@ export async function resolvePlayableStream(
     if (host === "direct" || host === "remux") continue;
     if (isBrokenUnlimUrl(embedUrl)) continue;
     if (/unlimplay\.com/i.test(embedUrl) && /\/(f\/)?(play\/)?embed\//i.test(embedUrl)) continue;
+    if (preferPublicLang && isLangUnreliableHost(host)) continue;
     return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
+  }
+
+  if (preferPublicLang) {
+    return pickFallbackEmbed({ ...opts, hostIndex: Math.min(idx, publicList.length - 1) });
   }
 
   for (const [host, embedUrl] of allHosts) {
@@ -1223,7 +1267,23 @@ export function mountRichardflixStream(router: Router): void {
           !HOST_PRIORITY.includes(k as (typeof HOST_PRIORITY)[number]) &&
           !isBrokenUnlimUrl(String(track[k])),
       );
-      const hosts = [...ordered, ...extras, ...list.map((e) => e.host).filter((h) => !ordered.includes(h as (typeof HOST_PRIORITY)[number]) && !extras.includes(h))];
+      const publicHosts = list.map((e) => e.host);
+      const preferPublicLang = lang === "latino" || lang === "espanol";
+      const unlimHosts = [...ordered, ...extras].filter(
+        (h) => !publicHosts.includes(h),
+      );
+      // Latino/español: primero embeds con lang=latino/es; Unlim file hosts al final.
+      const hosts = preferPublicLang
+        ? [
+            ...publicHosts,
+            ...unlimHosts.filter((h) => !isLangUnreliableHost(h)),
+            ...unlimHosts.filter((h) => isLangUnreliableHost(h)),
+          ]
+        : [
+            ...ordered,
+            ...extras,
+            ...publicHosts.filter((h) => !ordered.includes(h as (typeof HOST_PRIORITY)[number]) && !extras.includes(h)),
+          ];
       const mergedTrack = {
         ...Object.fromEntries(
           Object.entries(track).filter(([, u]) => typeof u === "string" && !isBrokenUnlimUrl(u)),
