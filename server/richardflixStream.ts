@@ -556,9 +556,16 @@ export async function warmUnlimEmbeds(
   if (Date.now() < unlimDownUntil) return "down";
   const key = unlimEmbedsKey(opts);
   const { data, cacheable } = await fetchUnlimEmbedsLive(opts);
-  if (data) cacheSet(key, data, 20 * 60 * 1000);
-  if (cacheable) await vodCacheSet(key, data);
-  if (data) return "ok";
+  if (data && embedsLookUsable(data)) {
+    cacheSet(key, data, 20 * 60 * 1000);
+    if (cacheable) await vodCacheSet(key, data);
+    return "ok";
+  }
+  if (data && !embedsLookUsable(data)) {
+    // Mapa solo cps/mf: no cachear; marca Unlim degradado un rato.
+    unlimDownUntil = Date.now() + UNLIM_DOWN_TTL_MS;
+    return "empty";
+  }
   if (cacheable) return "empty";
   return Date.now() < unlimDownUntil ? "down" : "error";
 }
