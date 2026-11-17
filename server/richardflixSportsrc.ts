@@ -195,17 +195,37 @@ function blobHasAny(blob: string, tokens: string[]): boolean {
   return tokens.some((t) => blob.includes(t));
 }
 
-function isWnbaMatch(m: { id?: string; title?: string; category?: string }): boolean {
+const WNBA_TOKENS = [
+  "indiana fever",
+  "new york liberty",
+  "atlanta dream",
+  "seattle storm",
+  "chicago sky",
+  "las vegas aces",
+  "los angeles sparks",
+  "dallas wings",
+  "connecticut sun",
+  "minnesota lynx",
+  "washington mystics",
+  "phoenix mercury",
+  "golden state valkyries",
+];
+
+function isWnbaMatch(m: { id?: string; title?: string; category?: string; leagueName?: string }): boolean {
   const id = (m.id || "").toLowerCase();
   const title = (m.title || "").toLowerCase();
+  const league = (m.leagueName || "").toLowerCase();
   if (id.includes("nflstreams") || id.includes("schedule")) return false;
-  if (!id.includes("basketball") && m.category !== "basketball") return false;
+  if (league.includes("wnba")) return true;
+  if (!id.includes("basketball") && m.category !== "basketball" && !id.startsWith("matchora-")) {
+    return false;
+  }
+  // Evitar falsos positivos tipo "Phoenix Suns" (NBA) por el token "sun".
+  const blob = `${id.replace(/-/g, " ")} ${title}`;
   return (
-    /\bw\b/.test(title.replace(/\./g, "")) ||
-    id.includes("-w-") ||
-    /fever|liberty|dream|storm|sky|aces|sparks|wings|sun|lynx|mystics|mercury|tempo|valkyries/.test(
-      `${id} ${title}`,
-    )
+    id.includes("-w-basketball-") ||
+    id.includes("wnba") ||
+    WNBA_TOKENS.some((t) => blob.includes(t))
   );
 }
 
@@ -491,34 +511,78 @@ async function dedupeBasketballMatches(items: SportMatch[]): Promise<SportMatch[
 }
 
 async function buildWnba(): Promise<SportMatch[]> {
-  const items = (await basketballPool()).filter(isWnbaMatch);
-  return dedupeBasketballMatches(items);
+  const [pool, matchoraEvents] = await Promise.all([
+    basketballPool(),
+    fetchMatchoraUpcomingEvents(16),
+  ]);
+  const recent = pool.filter(isWnbaMatch).filter(isUpcomingOrRecent);
+  const fromSrc = recent.length ? await dedupeBasketballMatches(recent) : [];
+  const fromMatchora = matchoraEventsToMatches(matchoraEvents, {
+    leaguePred: (league) => /wnba/i.test(league),
+    category: "basketball",
+  });
+  return mergeMatchesByMatchup(fromMatchora, fromSrc);
 }
 
 async function buildNba(): Promise<SportMatch[]> {
-  const items = (await basketballPool()).filter(isNbaMatch);
-  return dedupeBasketballMatches(items);
+  const [pool, matchoraEvents] = await Promise.all([
+    basketballPool(),
+    fetchMatchoraUpcomingEvents(16),
+  ]);
+  // SportSRC v1 basketball viene congelado semanas atrás: solo conservar recientes.
+  const recent = pool.filter(isNbaMatch).filter(isUpcomingOrRecent);
+  const fromSrc = recent.length ? await dedupeBasketballMatches(recent) : [];
+  const fromMatchora = matchoraEventsToMatches(matchoraEvents, {
+    // Solo NBA (no "NBA G League").
+    leaguePred: (league) => league.trim() === "NBA",
+    category: "basketball",
+  });
+  return mergeMatchesByMatchup(fromMatchora, fromSrc);
 }
 
 async function buildNfl(): Promise<SportMatch[]> {
-  const { body } = await fetchSportSrc("/", {
-    data: "matches",
+  const [srcRes, matchoraEvents] = await Promise.all([
+    fetchSportSrc("/", {
+      data: "matches",
+      category: "american-football",
+    }),
+    fetchMatchoraUpcomingEvents(16),
+  ]);
+  const data = srcRes.body as { data?: Record<string, unknown>[] };
+  const fromSrc = (data.data || [])
+    .filter(isNflMatch)
+    .map((m) => ({ ...normalizeV1(m), category: "american-football" as const }))
+    .filter(isUpcomingOrRecent);
+  const fromMatchora = matchoraEventsToMatches(matchoraEvents, {
+    leaguePred: (league, sport) =>
+      league === "NFL" ||
+      /^NFL\b/i.test(league) ||
+      (/american football/i.test(sport) && /nfl/i.test(league)),
     category: "american-football",
   });
-  const data = body as { data?: Record<string, unknown>[] };
-  return (data.data || [])
-    .filter(isNflMatch)
-    .map((m) => ({ ...normalizeV1(m), category: "american-football" }))
-    .sort((a, b) => a.date - b.date);
+  return mergeMatchesByMatchup(fromMatchora, fromSrc);
 }
 
 async function buildLigaMx(): Promise<SportMatch[]> {
-  return fetchV2FootballByLeague((name) => {
-    const lower = name.toLowerCase();
-    if (!lower.includes("liga mx")) return false;
-    if (lower.includes("women") || lower.includes("u21") || lower.includes("u-21")) return false;
-    return true;
-  }, 5, 14);
+  const [v2, matchoraEvents] = await Promise.all([
+    fetchV2FootballByLeague((name) => {
+      const lower = name.toLowerCase();
+      if (!lower.includes("liga mx")) return false;
+      if (lower.includes("women") || lower.includes("u21") || lower.includes("u-21")) return false;
+      return true;
+    }, 2, 21),
+    fetchMatchoraUpcomingEvents(16),
+  ]);
+  const fromSrc = v2.filter(isUpcomingOrRecent);
+  const fromMatchora = matchoraEventsToMatches(matchoraEvents, {
+    // Evitar "Mexican Pacific League" (beisbol) y similares.
+    leaguePred: (league) =>
+      /liga\s*mx/i.test(league) ||
+      /mexican\s+primera/i.test(league) ||
+      /liga\s+bbva\s+mx/i.test(league),
+    category: "football",
+  });
+  return mergeMatchesByMatchup(fromMatchora, fromSrc);
 }
 
 async function buildLeaguesCup(): Promise<SportMatch[]> {
@@ -714,7 +778,10 @@ async function matchoraSourcesByMatchup(
 ): Promise<StreamOption[]> {
   const key = matchupKey(title || "", teams);
   if (!key) return [];
-  const [live, schedule] = await Promise.all([fetchMatchoraLive(), fetchMatchoraSchedule()]);
+  const [live, schedule] = await Promise.all([
+    fetchMatchoraLive(),
+    fetchMatchoraUpcomingEvents(16),
+  ]);
   const hits = [...live, ...schedule].filter((ev) => {
     const m = matchoraToSportMatch(ev);
     if (!m) return false;
@@ -740,6 +807,121 @@ async function matchoraSourcesByMatchup(
     }
   }
   return mergeStreamOptions(out);
+}
+
+/** Ventana útil: en curso / por empezar (no catálogo fantasma de semanas atrás). */
+const SPORTS_RECENT_PAST_MS = 5 * 60 * 60 * 1000;
+const SPORTS_MAX_FUTURE_MS = 21 * 24 * 60 * 60 * 1000;
+
+function isUpcomingOrRecent(m: SportMatch): boolean {
+  const ts = Number(m.date) || 0;
+  if (!ts) return false;
+  const now = Date.now();
+  return ts >= now - SPORTS_RECENT_PAST_MS && ts <= now + SPORTS_MAX_FUTURE_MS;
+}
+
+function sortByDateAsc(items: SportMatch[]): SportMatch[] {
+  return [...items].sort((a, b) => a.date - b.date);
+}
+
+function mergeMatchesByMatchup(...lists: SportMatch[][]): SportMatch[] {
+  const byKey = new Map<string, SportMatch>();
+  const byId = new Map<string, SportMatch>();
+  for (const list of lists) {
+    for (const m of list) {
+      if (!m?.id) continue;
+      if (byId.has(m.id)) continue;
+      const key = matchupKey(m.title, m.teams) || m.id;
+      const prev = byKey.get(key);
+      if (!prev) {
+        byKey.set(key, m);
+        byId.set(m.id, m);
+        continue;
+      }
+      // Preferir Matchora (streams) y fechas más cercanas al futuro.
+      const prevMatchora = prev.id.startsWith("matchora-");
+      const nextMatchora = m.id.startsWith("matchora-");
+      let keep = prev;
+      if (nextMatchora && !prevMatchora) keep = m;
+      else if (nextMatchora === prevMatchora) {
+        const now = Date.now();
+        const prevDist = Math.abs(prev.date - now);
+        const nextDist = Math.abs(m.date - now);
+        if (nextDist < prevDist) keep = m;
+      }
+      byKey.set(key, keep);
+      byId.delete(prev.id);
+      byId.set(keep.id, keep);
+    }
+  }
+  return sortByDateAsc([...byKey.values()]);
+}
+
+async function fetchMatchoraUpcomingEvents(daysForward = 14): Promise<MatchoraEvent[]> {
+  const cacheId = cacheKey(`matchora:upcoming:v1:${daysForward}`);
+  const hit = getCached(cacheId, { allowStale: false });
+  if (hit) return hit.body as MatchoraEvent[];
+
+  const byId = new Map<string, MatchoraEvent>();
+  const push = (ev: MatchoraEvent | undefined) => {
+    const id = String(ev?.id ?? "").trim();
+    if (!id || !ev) return;
+    byId.set(id, ev);
+  };
+
+  try {
+    for (const ev of await fetchMatchoraSchedule()) push(ev);
+  } catch {
+    /* watchable opcional */
+  }
+
+  const today = new Date();
+  today.setUTCHours(12, 0, 0, 0);
+  const dates: string[] = [];
+  for (let i = 0; i <= daysForward; i++) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() + i);
+    dates.push(isoDateUTC(d));
+  }
+
+  const chunkSize = 4;
+  for (let i = 0; i < dates.length; i += chunkSize) {
+    const chunk = dates.slice(i, i + chunkSize);
+    await Promise.all(
+      chunk.map(async (date) => {
+        const body = await fetchExternalJson<{ events?: MatchoraEvent[] }>(
+          `https://matchora.to/api/v1/schedule?date=${encodeURIComponent(date)}`,
+          10 * 60 * 1000,
+        );
+        for (const ev of body?.events || []) push(ev);
+      }),
+    );
+  }
+
+  const out = [...byId.values()];
+  setCached(cacheId, out, 5 * 60 * 1000);
+  return out;
+}
+
+function matchoraEventsToMatches(
+  events: MatchoraEvent[],
+  opts: {
+    leaguePred: (league: string, sport: string) => boolean;
+    category?: string;
+  },
+): SportMatch[] {
+  const out: SportMatch[] = [];
+  for (const ev of events) {
+    const league = String(ev.league || "");
+    const sport = String(ev.sport || "");
+    if (!opts.leaguePred(league, sport)) continue;
+    const m = matchoraToSportMatch(ev);
+    if (!m || !isUpcomingOrRecent(m)) continue;
+    if (opts.category) m.category = opts.category;
+    m.leagueName = league || m.leagueName;
+    out.push(m);
+  }
+  return sortByDateAsc(out);
 }
 
 async function fetchExternalJson<T>(url: string, ttlMs = 90_000): Promise<T | null> {
@@ -1158,11 +1340,11 @@ const TAB_BUILDERS: Record<SportTab, () => Promise<SportMatch[]>> = {
 
 const TAB_TTL_MS: Record<SportTab, number> = {
   "en-vivo": 60 * 1000,
-  nba: 10 * 60 * 1000,
-  wnba: 10 * 60 * 1000,
-  nfl: 10 * 60 * 1000,
-  "liga-mx": 15 * 60 * 1000,
-  "leagues-cup": 12 * 60 * 1000,
+  nba: 3 * 60 * 1000,
+  wnba: 5 * 60 * 1000,
+  nfl: 3 * 60 * 1000,
+  "liga-mx": 5 * 60 * 1000,
+  "leagues-cup": 8 * 60 * 1000,
 };
 
 const tabInflight = new Map<SportTab, Promise<SportMatch[]>>();
