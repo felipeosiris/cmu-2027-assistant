@@ -864,6 +864,15 @@ async function isValidRemux(url: string): Promise<boolean> {
 }
 
 async function isReachablePlaylist(url: string, referer: string): Promise<boolean> {
+  const probe = await probePlaylist(url, referer);
+  return probe.ok;
+}
+
+/** Lee el master m3u8 y detecta si trae pista de audio en español/latino. */
+async function probePlaylist(
+  url: string,
+  referer: string,
+): Promise<{ ok: boolean; hasSpanishAudio: boolean }> {
   const hit = await readPrefixBytes(
     url,
     {
@@ -871,12 +880,17 @@ async function isReachablePlaylist(url: string, referer: string): Promise<boolea
       Referer: referer,
       Origin: UNLIM,
       Accept: "*/*",
-      Range: "bytes=0-2048",
+      Range: "bytes=0-8191",
     },
-    256,
+    8192,
   );
-  if (!hit || hit.status >= 400) return false;
-  return hit.buf.toString("utf8").includes("#EXTM3U");
+  if (!hit || hit.status >= 400) return { ok: false, hasSpanishAudio: false };
+  const text = hit.buf.toString("utf8");
+  if (!text.includes("#EXTM3U")) return { ok: false, hasSpanishAudio: false };
+  const hasSpanishAudio =
+    /TYPE=AUDIO[^\n]*LANGUAGE="es"/i.test(text) ||
+    /TYPE=AUDIO[^\n]*NAME="[^"]*(Espa[nñ]ol|Latino|Spanish|Castellano)[^"]*"/i.test(text);
+  return { ok: true, hasSpanishAudio };
 }
 
 async function resolveHostStream(
@@ -1043,65 +1057,59 @@ export async function resolvePlayableStream(
     return pickFallbackEmbed(opts);
   }
 
-  // Latino/español: priorizar embeds que piden idioma (multiembed/vidfast).
-  // Unlim "latino" a menudo es audio original en inglés (p.ej. Silicon Valley).
-  if (preferPublicLang && idx < publicList.length) {
-    return pickFallbackEmbed(opts);
-  }
-
   const langs = orderedLangs(opts.lang, embedsRaw);
   const referer = embedReferer(opts);
 
-  // Preferir native en el primer intento. Si hostIndex>0 el cliente ya falló direct/remux.
-  if (idx === 0 || (preferPublicLang && idx >= publicList.length)) {
+  // idx 0: intentar HLS nativo. Para latino/español SOLO si el m3u8 trae pista Español
+  // (ej. "Si yo tuviera 30"); si es inglés muxeado, caer a embeds públicos.
+  if (idx === 0) {
     for (const lang of langs) {
       const track = embedsRaw[lang] || pickTrack(embedsRaw, lang);
       if (!track) continue;
       const direct = track.direct;
       if (typeof direct === "string" && (direct.includes(".m3u8") || isBrokenUnlimUrl(direct))) {
-        if (isBrokenUnlimUrl(direct)) {
-          // cps.php: validar; si falla, no devolver validated:false (rompe el player).
-          const { streamUrl, kind } = await resolveHostStream("direct", direct, referer);
-          if (streamUrl && kind === "hls") {
-            const validated = await Promise.race([
-              isReachablePlaylist(streamUrl, referer),
-              new Promise<boolean>((r) => setTimeout(() => r(false), 2500)),
-            ]);
-            if (validated) {
-              return packResolved(streamUrl, "hls", referer, "direct", lang, true, req);
-            }
-          }
-          continue;
-        }
         const { streamUrl, kind } = await resolveHostStream("direct", direct, referer);
         if (streamUrl && kind === "hls") {
-          const validated = await Promise.race([
-            isReachablePlaylist(streamUrl, referer),
-            new Promise<boolean>((r) => setTimeout(() => r(false), 2500)),
+          const probe = await Promise.race([
+            probePlaylist(streamUrl, referer),
+            new Promise<{ ok: boolean; hasSpanishAudio: boolean }>((r) =>
+              setTimeout(() => r({ ok: false, hasSpanishAudio: false }), 2800),
+            ),
           ]);
-          if (validated) {
+          if (probe.ok) {
+            if (preferPublicLang && !probe.hasSpanishAudio) {
+              // Direct sin audio ES → no usar (suele ser inglés).
+              continue;
+            }
             return packResolved(streamUrl, "hls", referer, "direct", lang, true, req);
           }
         }
       }
     }
 
-    for (const lang of langs) {
-      const track = embedsRaw[lang] || pickTrack(embedsRaw, lang);
-      if (!track?.remux || typeof track.remux !== "string") continue;
-      if (isBrokenUnlimUrl(track.remux)) continue;
-      const { streamUrl, kind } = await resolveHostStream("remux", track.remux, referer);
-      if (streamUrl && kind === "mp4") {
-        return packResolved(streamUrl, "mp4", `${UNLIM}/`, "remux", lang, true, req);
+    if (!preferPublicLang) {
+      for (const lang of langs) {
+        const track = embedsRaw[lang] || pickTrack(embedsRaw, lang);
+        if (!track?.remux || typeof track.remux !== "string") continue;
+        if (isBrokenUnlimUrl(track.remux)) continue;
+        const { streamUrl, kind } = await resolveHostStream("remux", track.remux, referer);
+        if (streamUrl && kind === "mp4") {
+          return packResolved(streamUrl, "mp4", `${UNLIM}/`, "remux", lang, true, req);
+        }
       }
-    }
 
-    if (opts.type !== "tv") {
-      const candidate = `https://remux.unlimplay.com/remux?id=${opts.tmdbId}`;
-      if (await isValidRemux(candidate)) {
-        return packResolved(candidate, "mp4", `${UNLIM}/`, "remux", opts.lang, true, req);
+      if (opts.type !== "tv") {
+        const candidate = `https://remux.unlimplay.com/remux?id=${opts.tmdbId}`;
+        if (await isValidRemux(candidate)) {
+          return packResolved(candidate, "mp4", `${UNLIM}/`, "remux", opts.lang, true, req);
+        }
       }
     }
+  }
+
+  // Latino/español sin direct ES: embeds públicos (multiembed/vidfast) antes que Unlim file hosts.
+  if (preferPublicLang && idx < publicList.length) {
+    return pickFallbackEmbed(opts);
   }
 
   if (onlyBrokenUnlim) {
@@ -1272,7 +1280,8 @@ export function mountRichardflixStream(router: Router): void {
       const unlimHosts = [...ordered, ...extras].filter(
         (h) => !publicHosts.includes(h),
       );
-      // Latino/español: primero embeds con lang=latino/es; Unlim file hosts al final.
+      // Latino/español: embeds con idioma primero (hostIndex estable).
+      // /play?hostIndex=0 igual intenta HLS direct con audio ES antes del embed.
       const hosts = preferPublicLang
         ? [
             ...publicHosts,
