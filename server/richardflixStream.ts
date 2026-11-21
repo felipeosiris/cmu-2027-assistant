@@ -143,6 +143,75 @@ function stripSubtitleRenditions(body: string): string {
   return kept.join("\n");
 }
 
+function isSpanishAudioLine(line: string): boolean {
+  return (
+    /LANGUAGE="es"/i.test(line) ||
+    /NAME="[^"]*(Espa[nñ]ol|Latino|Spanish|Castellano|Mexican)[^"]*"/i.test(line)
+  );
+}
+
+/**
+ * Deja solo pistas AUDIO en español/latino y las marca DEFAULT.
+ * Así el player no puede caer a English aunque ignore la selección de pista.
+ */
+function preferSpanishAudioRenditions(body: string): string {
+  const lines = body.split("\n");
+  const audioLines = lines.filter((l) => /TYPE=AUDIO/i.test(l));
+  if (!audioLines.length) return body;
+
+  const spanish = audioLines.filter(isSpanishAudioLine);
+  if (!spanish.length) return body;
+
+  spanish.sort((a, b) => {
+    const score = (l: string) => (/latino|mexican|latam/i.test(l) ? 2 : 1);
+    return score(b) - score(a);
+  });
+
+  const keepGroups = new Set<string>();
+  for (const line of spanish) {
+    const g = /GROUP-ID="([^"]+)"/i.exec(line)?.[1];
+    if (g) keepGroups.add(g);
+  }
+
+  const primary = spanish[0]!;
+  let primaryForced = primary
+    .replace(/DEFAULT=(YES|NO)/gi, "DEFAULT=YES")
+    .replace(/AUTOSELECT=(YES|NO)/gi, "AUTOSELECT=YES");
+  if (!/DEFAULT=/i.test(primaryForced)) primaryForced += ",DEFAULT=YES";
+  if (!/AUTOSELECT=/i.test(primaryForced)) primaryForced += ",AUTOSELECT=YES";
+
+  const out: string[] = [];
+  let injected = false;
+  for (const line of lines) {
+    if (/TYPE=AUDIO/i.test(line)) {
+      if (!isSpanishAudioLine(line)) continue;
+      if (!injected) {
+        out.push(primaryForced);
+        injected = true;
+        continue;
+      }
+      if (line === primary || line === primaryForced) continue;
+      let fixed = line
+        .replace(/DEFAULT=(YES|NO)/gi, "DEFAULT=NO")
+        .replace(/AUTOSELECT=(YES|NO)/gi, "AUTOSELECT=YES");
+      out.push(fixed);
+      continue;
+    }
+    if (line.startsWith("#EXT-X-STREAM-INF") && keepGroups.size) {
+      let fixed = line;
+      const ag = /AUDIO="([^"]+)"/i.exec(line)?.[1];
+      if (ag && !keepGroups.has(ag)) {
+        const first = [...keepGroups][0]!;
+        fixed = fixed.replace(/AUDIO="[^"]*"/i, `AUDIO="${first}"`);
+      }
+      out.push(fixed);
+      continue;
+    }
+    out.push(line);
+  }
+  return out.join("\n");
+}
+
 function embedPagePath(opts: {
   type: StreamMediaType;
   tmdbId: number;
@@ -965,7 +1034,12 @@ async function validateStream(url: string, referer: string): Promise<boolean> {
   return isReachablePlaylist(url, referer);
 }
 
-function proxyUrlFor(target: string, referer: string, req: Request): string {
+function proxyUrlFor(
+  target: string,
+  referer: string,
+  req: Request,
+  opts?: { audioEs?: boolean },
+): string {
   const xfProto = String(req.headers["x-forwarded-proto"] || "")
     .split(",")[0]
     .trim();
@@ -976,7 +1050,8 @@ function proxyUrlFor(target: string, referer: string, req: Request): string {
     proto = "https";
   }
   const base = `${proto}://${host}/rf/stream/proxy`;
-  return `${base}?u=${b64urlEncode(target)}&r=${b64urlEncode(referer)}&nosubs=1`;
+  const audio = opts?.audioEs ? "&audio=es" : "";
+  return `${base}?u=${b64urlEncode(target)}&r=${b64urlEncode(referer)}&nosubs=1${audio}`;
 }
 
 function packResolved(
@@ -989,11 +1064,12 @@ function packResolved(
   req: Request,
 ): ResolvedStream {
   const isHls = kind === "hls";
+  const audioEs = lang === "latino" || lang === "espanol";
   // El navegador no puede reproducir m3u8 cross-origin de UnlimPlay: siempre proxy HLS.
   if (isHls) {
     return {
       mode: "hls-proxy",
-      url: proxyUrlFor(streamUrl, referer, req),
+      url: proxyUrlFor(streamUrl, referer, req, { audioEs }),
       referer,
       host,
       lang,
@@ -1002,7 +1078,7 @@ function packResolved(
   }
   return {
     mode: "mp4-proxy",
-    url: proxyUrlFor(streamUrl, referer, req),
+    url: proxyUrlFor(streamUrl, referer, req, { audioEs }),
     referer,
     host,
     lang,
@@ -1044,6 +1120,8 @@ export async function resolvePlayableStream(
     episode?: number;
     lang: StreamLang;
     hostIndex?: number;
+    /** Solo intentar HLS/mp4 nativo (direct/remux). Si falla → null. */
+    forceNative?: boolean;
   },
 ): Promise<ResolvedStream | { mode: "embed"; url: string; referer: string; host: string; lang: StreamLang } | null> {
   const embedsRaw = await fetchUnlimEmbeds(opts);
@@ -1052,17 +1130,18 @@ export async function resolvePlayableStream(
   const publicList = fallbackEmbedList(opts);
   const preferPublicLang = opts.lang === "latino" || opts.lang === "espanol";
   const idx = Math.max(0, opts.hostIndex ?? 0);
+  const forceNative = Boolean(opts.forceNative);
 
   if (!embedsRaw) {
+    if (forceNative) return null;
     return pickFallbackEmbed(opts);
   }
 
   const langs = orderedLangs(opts.lang, embedsRaw);
   const referer = embedReferer(opts);
 
-  // idx 0: intentar HLS nativo. Para latino/español SOLO si el m3u8 trae pista Español
-  // (ej. "Si yo tuviera 30"); si es inglés muxeado, caer a embeds públicos.
-  if (idx === 0) {
+  // idx 0 o forceNative: intentar HLS nativo. Para latino/español SOLO si el m3u8 trae pista ES.
+  if (idx === 0 || forceNative) {
     for (const lang of langs) {
       const track = embedsRaw[lang] || pickTrack(embedsRaw, lang);
       if (!track) continue;
@@ -1073,7 +1152,7 @@ export async function resolvePlayableStream(
           const probe = await Promise.race([
             probePlaylist(streamUrl, referer),
             new Promise<{ ok: boolean; hasSpanishAudio: boolean }>((r) =>
-              setTimeout(() => r({ ok: false, hasSpanishAudio: false }), 2800),
+              setTimeout(() => r({ ok: false, hasSpanishAudio: false }), 8000),
             ),
           ]);
           if (probe.ok) {
@@ -1087,7 +1166,7 @@ export async function resolvePlayableStream(
       }
     }
 
-    if (!preferPublicLang) {
+    if (!preferPublicLang || forceNative) {
       for (const lang of langs) {
         const track = embedsRaw[lang] || pickTrack(embedsRaw, lang);
         if (!track?.remux || typeof track.remux !== "string") continue;
@@ -1105,6 +1184,8 @@ export async function resolvePlayableStream(
         }
       }
     }
+
+    if (forceNative) return null;
   }
 
   // Latino/español sin direct ES: embeds públicos (multiembed/vidfast) antes que Unlim file hosts.
@@ -1190,8 +1271,15 @@ export async function resolvePlayableStream(
   return pickFallbackEmbed(opts);
 }
 
-function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Request, stripSubs: boolean): string {
+function rewriteM3u8(
+  body: string,
+  targetUrl: string,
+  referer: string,
+  req: Request,
+  opts: { stripSubs?: boolean; audioEs?: boolean } = {},
+): string {
   const base = new URL(targetUrl);
+  const proxyOpts = opts.audioEs ? { audioEs: true } : undefined;
 
   /** Emby HLS: segmentos relativos pierden ?api_key=. NO copiar DeviceId/MediaSourceId al .ts (Emby → 400). */
   const resolveUri = (uri: string): string => {
@@ -1215,7 +1303,9 @@ function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Requ
     return abs.href;
   };
 
-  const normalized = stripSubs ? stripSubtitleRenditions(body) : body;
+  let normalized = opts.stripSubs !== false ? stripSubtitleRenditions(body) : body;
+  if (opts.audioEs) normalized = preferSpanishAudioRenditions(normalized);
+
   let out = normalized
     .split("\n")
     .map((line) => {
@@ -1223,12 +1313,12 @@ function rewriteM3u8(body: string, targetUrl: string, referer: string, req: Requ
       if (!trimmed || trimmed.startsWith("#")) {
         if (trimmed.startsWith("#") && trimmed.includes('URI="')) {
           return trimmed.replace(/URI="([^"]+)"/g, (_m, uri: string) => {
-            return `URI="${proxyUrlFor(resolveUri(uri), referer, req)}"`;
+            return `URI="${proxyUrlFor(resolveUri(uri), referer, req, proxyOpts)}"`;
           });
         }
         return line;
       }
-      return proxyUrlFor(resolveUri(trimmed), referer, req);
+      return proxyUrlFor(resolveUri(trimmed), referer, req, proxyOpts);
     })
     .join("\n");
 
@@ -1321,6 +1411,10 @@ export function mountRichardflixStream(router: Router): void {
     const lang: StreamLang =
       langRaw === "espanol" || langRaw === "es" ? "espanol" : langRaw === "subtitulado" || langRaw === "sub" ? "subtitulado" : "latino";
     const hostIndex = Number(req.query.hostIndex || 0);
+    const forceNative =
+      req.query.native === "1" ||
+      req.query.forceNative === "1" ||
+      String(req.query.prefer || "").toLowerCase() === "native";
 
     if (!tmdbId || Number.isNaN(tmdbId)) {
       res.status(400).json({ ok: false, error: "tmdb requerido" });
@@ -1328,7 +1422,15 @@ export function mountRichardflixStream(router: Router): void {
     }
 
     try {
-      const stream = await resolvePlayableStream(req, { type, tmdbId, season, episode, lang, hostIndex });
+      const stream = await resolvePlayableStream(req, {
+        type,
+        tmdbId,
+        season,
+        episode,
+        lang,
+        hostIndex,
+        forceNative,
+      });
       if (!stream) {
         res.status(404).json({ ok: false, error: "no se pudo resolver stream" });
         return;
@@ -1402,7 +1504,10 @@ export function mountRichardflixStream(router: Router): void {
           return;
         }
         if (text.includes("#EXTM3U") || text.includes("#EXT-X-")) {
-          const rewritten = rewriteM3u8(text, u, r, req, req.query.nosubs !== "0");
+          const rewritten = rewriteM3u8(text, u, r, req, {
+            stripSubs: req.query.nosubs !== "0",
+            audioEs: req.query.audio === "es",
+          });
           res.setHeader("Content-Type", "application/vnd.apple.mpegurl");
           res.setHeader("Access-Control-Allow-Origin", "*");
           res.setHeader("Cache-Control", "no-cache");
