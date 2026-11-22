@@ -1131,6 +1131,7 @@ async function fetchExternalJson<T>(url: string, ttlMs = 90_000): Promise<T | nu
 function scoreEmbed(s: StreamOption): number {
   const url = (s.embedUrl || "").toLowerCase();
   const lang = (s.language || "").toLowerCase();
+  const src = (s.source || "").toLowerCase();
   let n = 0;
   // embed.st directo: menos iframes anidados. streamapi suele ser wrapper al mismo feed.
   if (url.includes("embed.st/embed/")) n += 90;
@@ -1139,11 +1140,26 @@ function scoreEmbed(s: StreamOption): number {
   if (url.includes("westream.su/embed")) n += 55;
   if (url.includes("embed.streamapi.cc")) n += 25;
   if (url.includes("mutstreams")) n -= 100;
-  if (lang.includes("spanish") || lang.includes("español") || lang.startsWith("es")) n += 25;
+  if (
+    lang.includes("spanish") ||
+    lang.includes("español") ||
+    lang.includes("espanol") ||
+    lang.startsWith("es") ||
+    lang.includes("latino")
+  ) {
+    n += 45;
+  }
+  if (
+    /universo|tudn|azteca|fox\s*deportes|fox\s*sports\s*mx|espn\s*deportes|claro\s*sports/.test(
+      src,
+    )
+  ) {
+    n += 30;
+  }
   if (s.hd) n += 5;
-  if ((s.source || "").toLowerCase() === "admin") n += 8;
-  if ((s.source || "").toLowerCase() === "delta") n += 2;
-  if ((s.source || "").toLowerCase() === "matchora") n += 6;
+  if (src === "admin") n += 8;
+  if (src === "delta") n += 2;
+  if (src === "matchora") n += 6;
   return n;
 }
 
@@ -1585,7 +1601,7 @@ async function getDetail(opts: {
   id: string;
   category?: string;
 }): Promise<{ body: unknown; cache: string }> {
-  const enrichedKey = cacheKey(`detail-enriched:v4:${opts.api}:${opts.category || ""}:${opts.id}`);
+  const enrichedKey = cacheKey(`detail-enriched:v5:${opts.api}:${opts.category || ""}:${opts.id}`);
   const enrichedHit = getCached(enrichedKey, { allowStale: false });
   if (enrichedHit) {
     const cachedSources = extractSourcesFromSportSrcBody(enrichedHit.body);
