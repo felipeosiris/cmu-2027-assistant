@@ -143,6 +143,22 @@ function stripSubtitleRenditions(body: string): string {
   return kept.join("\n");
 }
 
+/** Unlim tiene buckets distintos (latino ≠ subtitulado) → confiar más en el track latino. */
+function unlimLangBucketsDistinct(embeds: EmbedsMap): boolean {
+  const keys = Object.keys(embeds).filter((k) => k !== "searched_names");
+  if (keys.length < 2) return false;
+  const lat = embeds.latino || embeds.espanol || embeds["español"];
+  const sub = embeds.subtitulado;
+  if (!lat || !sub) return true;
+  const sig = (track: Record<string, string>) =>
+    Object.entries(track)
+      .filter(([h, u]) => h !== "searched_names" && typeof u === "string")
+      .map(([h, u]) => `${h}:${u}`)
+      .sort()
+      .join("|");
+  return sig(lat) !== sig(sub);
+}
+
 function isSpanishAudioLine(line: string): boolean {
   return (
     /LANGUAGE="es"/i.test(line) ||
@@ -581,7 +597,8 @@ async function fetchUnlimEmbedsLive(
   let page = await fetchUnlimEmbedsPage(opts);
   // A veces la página cierra sin mandar finalizePlayer aunque el título sí tenga servidores.
   if (!page.data && page.cacheable) page = await fetchUnlimEmbedsPage(opts);
-  const direct = page.data?.latino?.direct ? null : await directPromise;
+  // Solo omitir Vimeos si ya hay un .m3u8 real; cps.php / basura no cuenta.
+  const direct = usableDirectUrl(page.data?.latino?.direct) ? null : await directPromise;
   if (!page.data && !direct) return { data: null, cacheable: false };
   const data: EmbedsMap = { ...(page.data ?? {}) };
   if (direct) data.latino = { direct, ...(data.latino ?? {}) };
@@ -621,6 +638,19 @@ async function fetchUnlimEmbedsPage(
   return { data: null, cacheable: false };
 }
 
+async function ensureLatinoDirect(
+  opts: UnlimEmbedsOpts,
+  embeds: EmbedsMap,
+): Promise<EmbedsMap> {
+  if (usableDirectUrl(embeds.latino?.direct)) return embeds;
+  const direct = await fetchVimeosDirect(opts);
+  if (!direct) return embeds;
+  return {
+    ...embeds,
+    latino: { direct, ...(embeds.latino ?? {}) },
+  };
+}
+
 export async function fetchUnlimEmbeds(
   opts: UnlimEmbedsOpts,
   { fresh = false }: { fresh?: boolean } = {},
@@ -629,11 +659,16 @@ export async function fetchUnlimEmbeds(
   if (!fresh) {
     const cached = cacheGet<EmbedsMap>(key);
     // Ignorar mapas en caché que solo traen cps.php/mf.php muertos.
-    if (cached && embedsLookUsable(cached)) return cached;
+    if (cached && embedsLookUsable(cached)) {
+      const withDirect = await ensureLatinoDirect(opts, cached);
+      if (withDirect !== cached) cacheSet(key, withDirect, 20 * 60 * 1000);
+      return withDirect;
+    }
     const stored = await vodCacheGet(key);
     if (stored?.data && embedsLookUsable(stored.data)) {
-      cacheSet(key, stored.data, 20 * 60 * 1000);
-      return stored.data;
+      const withDirect = await ensureLatinoDirect(opts, stored.data);
+      cacheSet(key, withDirect, 20 * 60 * 1000);
+      return withDirect;
     }
   }
 
@@ -932,6 +967,19 @@ async function isValidRemux(url: string): Promise<boolean> {
   return hit.buf.subarray(4, 8).toString("utf8") === "ftyp";
 }
 
+function isVimeosUrl(url: string): boolean {
+  try {
+    return /(^|\.)vimeos\.[a-z]+$/i.test(new URL(url).hostname);
+  } catch {
+    return /vimeos\./i.test(url);
+  }
+}
+
+/** URL de HLS “direct” usable (no cps/mf). */
+function usableDirectUrl(u: unknown): u is string {
+  return typeof u === "string" && u.includes(".m3u8") && !isBrokenUnlimUrl(u);
+}
+
 async function isReachablePlaylist(url: string, referer: string): Promise<boolean> {
   const probe = await probePlaylist(url, referer);
   return probe.ok;
@@ -941,18 +989,18 @@ async function isReachablePlaylist(url: string, referer: string): Promise<boolea
 async function probePlaylist(
   url: string,
   referer: string,
-): Promise<{ ok: boolean; hasSpanishAudio: boolean }> {
-  const hit = await readPrefixBytes(
-    url,
-    {
-      "User-Agent": UA,
-      Referer: referer,
-      Origin: UNLIM,
-      Accept: "*/*",
-      Range: "bytes=0-8191",
-    },
-    8192,
-  );
+): Promise<{ ok: boolean; hasSpanishAudio: boolean; timedOut?: boolean }> {
+  // Vimeos CDN: 403 si llega Referer/Origin de UnlimPlay.
+  const headers: Record<string, string> = isVimeosUrl(url)
+    ? { "User-Agent": UA, Accept: "*/*", Range: "bytes=0-8191" }
+    : {
+        "User-Agent": UA,
+        Referer: referer,
+        Origin: UNLIM,
+        Accept: "*/*",
+        Range: "bytes=0-8191",
+      };
+  const hit = await readPrefixBytes(url, headers, 8192);
   if (!hit || hit.status >= 400) return { ok: false, hasSpanishAudio: false };
   const text = hit.buf.toString("utf8");
   if (!text.includes("#EXTM3U")) return { ok: false, hasSpanishAudio: false };
@@ -1146,13 +1194,13 @@ export async function resolvePlayableStream(
       const track = embedsRaw[lang] || pickTrack(embedsRaw, lang);
       if (!track) continue;
       const direct = track.direct;
-      if (typeof direct === "string" && (direct.includes(".m3u8") || isBrokenUnlimUrl(direct))) {
+      if (typeof direct === "string" && (usableDirectUrl(direct) || isBrokenUnlimUrl(direct))) {
         const { streamUrl, kind } = await resolveHostStream("direct", direct, referer);
         if (streamUrl && kind === "hls") {
           const probe = await Promise.race([
             probePlaylist(streamUrl, referer),
-            new Promise<{ ok: boolean; hasSpanishAudio: boolean }>((r) =>
-              setTimeout(() => r({ ok: false, hasSpanishAudio: false }), 8000),
+            new Promise<{ ok: boolean; hasSpanishAudio: boolean; timedOut?: boolean }>((r) =>
+              setTimeout(() => r({ ok: false, hasSpanishAudio: false, timedOut: true }), 10000),
             ),
           ]);
           if (probe.ok) {
@@ -1160,6 +1208,10 @@ export async function resolvePlayableStream(
               // Direct sin audio ES → no usar (suele ser inglés).
               continue;
             }
+            return packResolved(streamUrl, "hls", referer, "direct", lang, true, req);
+          }
+          // Probe lento (CDN): para latino aún servir — el proxy fuerza audio=es.
+          if (preferPublicLang && probe.timedOut) {
             return packResolved(streamUrl, "hls", referer, "direct", lang, true, req);
           }
         }
@@ -1188,14 +1240,10 @@ export async function resolvePlayableStream(
     if (forceNative) return null;
   }
 
-  // Latino/español sin direct ES: embeds públicos (multiembed/vidfast) antes que Unlim file hosts.
-  if (preferPublicLang && idx < publicList.length) {
-    return pickFallbackEmbed(opts);
-  }
-
   if (onlyBrokenUnlim) {
     // Unlim mapa podrido → cadena pública (vidfast/vidsrc/…).
     unlimDownUntil = Date.now() + UNLIM_DOWN_TTL_MS;
+    if (forceNative) return null;
     return pickFallbackEmbed(opts);
   }
 
@@ -1206,11 +1254,23 @@ export async function resolvePlayableStream(
   const extras = Object.entries(track).filter(
     ([h]) => h !== "searched_names" && !HOST_PRIORITY.includes(h as (typeof HOST_PRIORITY)[number]),
   );
-  // Para latino/español, dejar hosts sin control de audio al final.
+  // Si Unlim separa latino ≠ subtitulado, confiar en hosts del track latino (aunque sean “unreliable”).
+  const trustUnlimLang = preferPublicLang && unlimLangBucketsDistinct(embedsRaw);
   const reliable = [...ordered, ...extras].filter(([h]) => !isLangUnreliableHost(h));
   const unreliable = [...ordered, ...extras].filter(([h]) => isLangUnreliableHost(h));
-  const allHosts = preferPublicLang ? [...reliable, ...unreliable] : [...ordered, ...extras];
-  const unlimIdx = preferPublicLang ? Math.max(0, idx - publicList.length) : idx;
+  const allHosts = trustUnlimLang
+    ? [...ordered, ...extras]
+    : preferPublicLang
+      ? [...reliable, ...unreliable]
+      : [...ordered, ...extras];
+
+  // Latino sin HLS ES: si Unlim tiene buckets distintos, intentar hosts Unlim ANTES que multiembed (EN).
+  if (preferPublicLang && !trustUnlimLang && idx < publicList.length) {
+    return pickFallbackEmbed(opts);
+  }
+
+  const unlimIdx =
+    preferPublicLang && !trustUnlimLang ? Math.max(0, idx - publicList.length) : idx;
   const slice = allHosts.slice(unlimIdx);
 
   // Intentar extracción limpia en pocos hosts (con tope de tiempo total).
@@ -1221,7 +1281,7 @@ export async function resolvePlayableStream(
     if (host === "direct" || host === "remux") continue;
     if (isBrokenUnlimUrl(embedUrl)) continue;
     if (isIframeOnlyHost(host)) continue;
-    if (preferPublicLang && isLangUnreliableHost(host)) continue;
+    if (preferPublicLang && !trustUnlimLang && isLangUnreliableHost(host)) continue;
     const hostKey = host.replace(/\s*\d+$/, "");
     if ((extractFailUntil.get(hostKey) ?? 0) > Date.now()) continue;
 
@@ -1252,7 +1312,7 @@ export async function resolvePlayableStream(
     if (host === "direct" || host === "remux") continue;
     if (isBrokenUnlimUrl(embedUrl)) continue;
     if (/unlimplay\.com/i.test(embedUrl) && /\/(f\/)?(play\/)?embed\//i.test(embedUrl)) continue;
-    if (preferPublicLang && isLangUnreliableHost(host)) continue;
+    if (preferPublicLang && !trustUnlimLang && isLangUnreliableHost(host)) continue;
     return { mode: "embed", url: tuneEmbedUrl(embedUrl), referer, host, lang: opts.lang };
   }
 
@@ -1367,17 +1427,33 @@ export function mountRichardflixStream(router: Router): void {
       );
       const publicHosts = list.map((e) => e.host);
       const preferPublicLang = lang === "latino" || lang === "espanol";
+      const trustUnlimLang = preferPublicLang && unlimLangBucketsDistinct(embeds);
       const unlimHosts = [...ordered, ...extras].filter(
         (h) => !publicHosts.includes(h),
       );
-      // Latino/español: embeds con idioma primero (hostIndex estable).
-      // /play?hostIndex=0 igual intenta HLS direct con audio ES antes del embed.
+      const nativeHosts: string[] = [];
+      if (usableDirectUrl(track.direct)) nativeHosts.push("direct");
+      if (
+        typeof track.remux === "string" &&
+        track.remux.startsWith("http") &&
+        !isBrokenUnlimUrl(track.remux)
+      ) {
+        nativeHosts.push("remux");
+      }
+      // Latino: HLS direct primero; si Unlim separa idiomas, hosts Unlim antes que multiembed (EN).
       const hosts = preferPublicLang
-        ? [
-            ...publicHosts,
-            ...unlimHosts.filter((h) => !isLangUnreliableHost(h)),
-            ...unlimHosts.filter((h) => isLangUnreliableHost(h)),
-          ]
+        ? trustUnlimLang
+          ? [
+              ...nativeHosts,
+              ...unlimHosts.filter((h) => !nativeHosts.includes(h)),
+              ...publicHosts,
+            ]
+          : [
+              ...nativeHosts,
+              ...publicHosts,
+              ...unlimHosts.filter((h) => !isLangUnreliableHost(h) && !nativeHosts.includes(h)),
+              ...unlimHosts.filter((h) => isLangUnreliableHost(h) && !nativeHosts.includes(h)),
+            ]
         : [
             ...ordered,
             ...extras,
