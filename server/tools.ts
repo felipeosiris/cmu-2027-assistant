@@ -114,10 +114,16 @@ export function cicVenuePlace(): PlaceResult {
   };
 }
 
+const weatherCache = new Map<string, { at: number; data: WeatherSnapshot }>();
+
 export async function fetchWeather(
   lat = CIC_PV.lat,
   lon = CIC_PV.lon
 ): Promise<WeatherSnapshot> {
+  const cacheKey = `${lat.toFixed(3)},${lon.toFixed(3)}`;
+  const hit = weatherCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.data;
+
   const url = new URL("https://api.open-meteo.com/v1/forecast");
   url.searchParams.set("latitude", String(lat));
   url.searchParams.set("longitude", String(lon));
@@ -155,7 +161,7 @@ export async function fetchWeather(
     clothingTip += " Lluvia o riesgo: paraguas entre hotel y CIC.";
   }
 
-  return {
+  const snapshot: WeatherSnapshot = {
     location: CIC_PV.name,
     time: c.time,
     temperatureC: c.temperature_2m,
@@ -166,6 +172,8 @@ export async function fetchWeather(
     condition: WMO[c.weather_code] || `Código ${c.weather_code}`,
     clothingTip,
   };
+  weatherCache.set(cacheKey, { at: Date.now(), data: snapshot });
+  return snapshot;
 }
 
 type PlaceType =
@@ -295,16 +303,18 @@ export async function buildLiveContext(
   const places: PlaceResult[] = [];
   const venue = cicVenuePlace();
 
-  // Always inject weather (proactive for PV heat)
-  try {
-    const w = await fetchWeather();
-    parts.push(
-      `## Clima en vivo (Open-Meteo) cerca del CIC\n\`\`\`json\n${JSON.stringify(w, null, 2)}\n\`\`\``
-    );
-  } catch (e) {
-    parts.push(
-      `## Clima\nNo disponible: ${e instanceof Error ? e.message : e}`
-    );
+  // Clima: solo si lo piden (antes siempre → +200–800 ms por request)
+  if (intent.weather) {
+    try {
+      const w = await fetchWeather();
+      parts.push(
+        `## Clima en vivo (Open-Meteo) cerca del CIC\n\`\`\`json\n${JSON.stringify(w, null, 2)}\n\`\`\``
+      );
+    } catch (e) {
+      parts.push(
+        `## Clima\nNo disponible: ${e instanceof Error ? e.message : e}`
+      );
+    }
   }
 
   // Sede coords solo si preguntan por ubicación / cómo llegar
@@ -473,6 +483,21 @@ Solo usa fotos con confidence ≥ 0.9. Si no hay foto segura, dilo en una frase 
   }
 
   await Promise.all(jobs);
+
+  // Prefetch notas/programa relevantes → el Agent no pierde tiempo listando el vault
+  if (vaultRoot) {
+    try {
+      const { prefetchRelevantNotes } = await import("./demoContext.js");
+      const notes = prefetchRelevantNotes(prompt, vaultRoot);
+      if (notes.length) {
+        parts.push(
+          `## Notas precargadas (prioridad)\n${notes.join("\n\n")}`
+        );
+      }
+    } catch (e) {
+      console.warn("[demoContext]", e);
+    }
+  }
 
   if (places.length) {
     parts.push(`## Instrucción de mapas

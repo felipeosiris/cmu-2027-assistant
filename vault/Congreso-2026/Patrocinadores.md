@@ -23,8 +23,12 @@ Fuente: Canva “Patrocinadores CMUN 26” + programa. Logos en `client/public/a
 Ver diapositivas 4–5 del Canva y `logos/bronce-*.png` / `extra-*.png`. Incluye ASAC, TENA, Silanes, Bayer, etc. (actividades en programa).
 
 ## Actividades patrocinadas (selección)
-- **Astellas** — Martes 2 · cáncer de próstata · Maito; Miércoles 3 · simposio NCCN
-- **Boston Scientific** — taller vapor HBP
+- **Astellas** — Martes 2 · cáncer de próstata · Maito; Miércoles 3 · simposio NCCN; **DEMO** Café experto jue 4 · 07:45 Stand A-12
+- **Boston Scientific** — taller vapor HBP; **DEMO** stand B-08 ZeroTip + bahía R-03
+- **Liomont** — **DEMO** simposio jue 4 · 15:15 Quimixto; desayuno vie 5 · Majahuitas; stand C-04
+- **AstraZeneca** — **DEMO** simposio jue 4 · 16:00 Majahuitas; stand A-14
 - **TENA / ASAC / Silanes** — desayunos / simposios (ver programa)
 
-Trivias jugables en la app: Diamante + Oro + subset Plata (hub de trivias).
+Plano de stands: [[Congreso-2026/Area-comercial-stands]].
+
+Trivias jugables en la app: Diamante + Oro + subset Plata (hub de trivias; ZeroTip en Boston).

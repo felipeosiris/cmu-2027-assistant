@@ -8,6 +8,7 @@ import {
 } from "./MyAgenda";
 import { TriviaPanel, TRIVIA_LANDING } from "./Trivia";
 import { RemindersPanel } from "./Reminders";
+import { SponsorCarousel } from "./Sponsors";
 import { apiUrl, IS_STATIC } from "./api";
 
 type Role = "user" | "assistant" | "system";
@@ -1016,9 +1017,9 @@ export default function App() {
         {!hasUserMsgs ? (
           <section className="landing">
             <h1 className="landing-title">
-              Tu guía en el
+              Tu asistente en el
               <br />
-              <em>Congreso CMU</em>
+              <em>congreso CMU</em>
             </h1>
             <p className="landing-lede">
               Las sugerencias cambian según lo que vas preguntando.
@@ -1059,6 +1060,7 @@ export default function App() {
                 ))}
               </div>
             )}
+            <SponsorCarousel onOpenTrivia={openTrivia} />
           </section>
         ) : (
           <section className="briefings" ref={feedRef}>

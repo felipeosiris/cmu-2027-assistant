@@ -188,13 +188,32 @@ export const TRIVIA_CAMPAIGNS: TriviaCampaign[] = [
     prize: "Reconocimiento Boston Scientific (demo)",
     logo: "/assets/sponsors/logos/boston-scientific.png",
     blurb: "Patrocinador Plata · dispositivos / HBP",
-    questions: genericDemo(
-      "Boston Scientific",
-      "Tecnología y talleres (p. ej. vapor HBP) ligados al programa",
-      ["Solo fármacos orales", "Sin actividades nominativas"],
-      "Revisar agenda de talleres/dispositivos y preguntar indicaciones",
-      ["Operar sin entrenamiento", "Omitir contraindicaciones del dispositivo"]
-    ),
+    questions: [
+      {
+        id: "q1",
+        prompt:
+          "1. ¿Qué longitud (cm) tiene la canastilla endoscópica ZeroTip de Boston Scientific?",
+        options: [
+          { id: "a", text: "120", correct: true },
+          { id: "b", text: "150" },
+          { id: "c", text: "200" },
+        ],
+      },
+      {
+        id: "q2",
+        prompt:
+          "2. En el congreso CMU, ¿qué actividad nominativa tiene Boston Scientific?",
+        options: [
+          {
+            id: "a",
+            text: "Taller de terapia de vapor en HBP (jueves 4 · Quimixto)",
+            correct: true,
+          },
+          { id: "b", text: "Simposio NCCN de próstata" },
+          { id: "c", text: "Ceremonia de inauguración" },
+        ],
+      },
+    ],
   },
   {
     id: "az-plata",
