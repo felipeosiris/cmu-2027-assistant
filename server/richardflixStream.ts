@@ -601,7 +601,8 @@ async function fetchUnlimEmbedsLive(
   const direct = usableDirectUrl(page.data?.latino?.direct) ? null : await directPromise;
   if (!page.data && !direct) return { data: null, cacheable: false };
   const data: EmbedsMap = { ...(page.data ?? {}) };
-  if (direct) data.latino = { direct, ...(data.latino ?? {}) };
+  // Vimeos al final para que pise cps.php / basura del scrape de página.
+  if (direct) data.latino = { ...(data.latino ?? {}), direct };
   return { data, cacheable: page.cacheable || Boolean(direct) };
 }
 
@@ -647,7 +648,7 @@ async function ensureLatinoDirect(
   if (!direct) return embeds;
   return {
     ...embeds,
-    latino: { direct, ...(embeds.latino ?? {}) },
+    latino: { ...(embeds.latino ?? {}), direct },
   };
 }
 
@@ -1034,20 +1035,27 @@ async function resolveHostStream(
   };
 
   if (host === "direct") {
+    // cps.php?x=.m3u8 no es un playlist: no tratarlo como HLS por el query string.
+    if (isBrokenUnlimUrl(embedUrl)) {
+      const nested = unwrapNested(embedUrl);
+      if (nested && !isBrokenUnlimUrl(nested.streamUrl)) return nested;
+      return { streamUrl: null, kind: "embed" };
+    }
+
     const unwrapped = unwrapNested(embedUrl);
-    if (unwrapped) return unwrapped;
+    if (unwrapped && !isBrokenUnlimUrl(unwrapped.streamUrl)) return unwrapped;
 
     try {
       const { text, finalUrl } = await fetchText(embedUrl, referer);
       const fromHtml = extractM3u8(text) ?? extractMp4(text);
-      if (fromHtml) {
+      if (fromHtml && !isBrokenUnlimUrl(fromHtml)) {
         return {
           streamUrl: fromHtml,
           kind: fromHtml.includes(".m3u8") ? "hls" : "mp4",
         };
       }
       const again = unwrapNested(finalUrl);
-      if (again) return again;
+      if (again && !isBrokenUnlimUrl(again.streamUrl)) return again;
     } catch {
       /* fallthrough */
     }
@@ -1196,7 +1204,7 @@ export async function resolvePlayableStream(
       const direct = track.direct;
       if (typeof direct === "string" && (usableDirectUrl(direct) || isBrokenUnlimUrl(direct))) {
         const { streamUrl, kind } = await resolveHostStream("direct", direct, referer);
-        if (streamUrl && kind === "hls") {
+        if (streamUrl && kind === "hls" && !isBrokenUnlimUrl(streamUrl)) {
           const probe = await Promise.race([
             probePlaylist(streamUrl, referer),
             new Promise<{ ok: boolean; hasSpanishAudio: boolean; timedOut?: boolean }>((r) =>
