@@ -1193,6 +1193,8 @@ export async function resolvePlayableStream(
     return pickFallbackEmbed(opts);
   }
 
+  // native=1 nunca debe devolver multiembed/vidsrc (suelen ser EN).
+
   const langs = orderedLangs(opts.lang, embedsRaw);
   const referer = embedReferer(opts);
 
@@ -1216,11 +1218,14 @@ export async function resolvePlayableStream(
               // Direct sin audio ES → no usar (suele ser inglés).
               continue;
             }
-            return packResolved(streamUrl, "hls", referer, "direct", lang, true, req);
+            // Empaquetar con el idioma pedido (latino/español) para que el proxy
+            // aplique audio=es aunque el m3u8 haya salido del bucket subtitulado.
+            const packLang = preferPublicLang ? opts.lang : lang;
+            return packResolved(streamUrl, "hls", referer, "direct", packLang, true, req);
           }
           // Probe lento (CDN): para latino aún servir — el proxy fuerza audio=es.
           if (preferPublicLang && probe.timedOut) {
-            return packResolved(streamUrl, "hls", referer, "direct", lang, true, req);
+            return packResolved(streamUrl, "hls", referer, "direct", opts.lang, true, req);
           }
         }
       }
