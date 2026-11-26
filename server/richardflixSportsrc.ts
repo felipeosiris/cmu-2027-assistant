@@ -525,13 +525,14 @@ async function dedupeBasketballMatches(items: SportMatch[]): Promise<SportMatch[
 }
 
 async function buildWnba(): Promise<SportMatch[]> {
-  const [pool, matchoraEvents] = await Promise.all([
+  const [pool, matchoraLive, matchoraEvents] = await Promise.all([
     basketballPool(),
+    fetchMatchoraLive().catch(() => [] as MatchoraEvent[]),
     fetchMatchoraUpcomingEvents(16),
   ]);
   const recent = pool.filter(isWnbaMatch).filter(isUpcomingOrRecent);
   const fromSrc = recent.length ? await dedupeBasketballMatches(recent) : [];
-  const fromMatchora = matchoraEventsToMatches(matchoraEvents, {
+  const fromMatchora = matchoraEventsToMatches([...matchoraLive, ...matchoraEvents], {
     leaguePred: (league) => /wnba/i.test(league),
     category: "basketball",
   });
@@ -539,14 +540,15 @@ async function buildWnba(): Promise<SportMatch[]> {
 }
 
 async function buildNba(): Promise<SportMatch[]> {
-  const [pool, matchoraEvents] = await Promise.all([
+  const [pool, matchoraLive, matchoraEvents] = await Promise.all([
     basketballPool(),
+    fetchMatchoraLive().catch(() => [] as MatchoraEvent[]),
     fetchMatchoraUpcomingEvents(16),
   ]);
   // SportSRC v1 basketball viene congelado semanas atrás: solo conservar recientes.
   const recent = pool.filter(isNbaMatch).filter(isUpcomingOrRecent);
   const fromSrc = recent.length ? await dedupeBasketballMatches(recent) : [];
-  const fromMatchora = matchoraEventsToMatches(matchoraEvents, {
+  const fromMatchora = matchoraEventsToMatches([...matchoraLive, ...matchoraEvents], {
     // Solo NBA (no "NBA G League").
     leaguePred: (league) => league.trim() === "NBA",
     category: "basketball",
@@ -807,10 +809,42 @@ const WESTREAM_STREAM_BASES = [
   "https://westream.su/stream",
 ] as const;
 
-/** Matchora — reemplazo público de streamed/westream (embeds listos, sin API key). */
-const MATCHORA_LIVE = "https://matchora.to/api/v1/live";
-const MATCHORA_SCHEDULE = "https://matchora.to/api/v1/schedule?watchable=1";
-const MATCHORA_EVENT = "https://matchora.to/api/v1/events";
+/** Matchora — reemplazo público de streamed/westream (embeds listos, sin API key).
+ *  matchora.to suele fallar DNS; .pro / .st son mirrors activos. */
+const MATCHORA_HOSTS = [
+  "https://matchora.pro",
+  "https://matchora.st",
+  "https://matchora.to",
+] as const;
+
+let matchoraBaseResolved: string | null = null;
+
+function matchoraBase(): string {
+  return matchoraBaseResolved || MATCHORA_HOSTS[0];
+}
+
+function matchoraPath(path: string): string {
+  const p = path.startsWith("/") ? path : `/${path}`;
+  return `${matchoraBase()}${p}`;
+}
+
+async function fetchMatchoraJson<T>(path: string, ttlMs = 90_000): Promise<T | null> {
+  const rel = path.startsWith("/") ? path : `/${path}`;
+  const preferred = matchoraBaseResolved ? [matchoraBaseResolved] : [];
+  const hosts = [
+    ...preferred,
+    ...MATCHORA_HOSTS.filter((h) => !preferred.includes(h)),
+  ];
+  for (const host of hosts) {
+    const url = `${host}${rel}`;
+    const body = await fetchExternalJson<T>(url, ttlMs);
+    if (body != null) {
+      matchoraBaseResolved = host;
+      return body;
+    }
+  }
+  return null;
+}
 
 type MatchoraChannel = {
   id?: string;
@@ -937,18 +971,21 @@ function matchoraChannelsToSources(channels: MatchoraChannel[] | undefined): Str
 }
 
 async function fetchMatchoraLive(): Promise<MatchoraEvent[]> {
-  const body = await fetchExternalJson<{ events?: MatchoraEvent[] }>(MATCHORA_LIVE, 45_000);
+  const body = await fetchMatchoraJson<{ events?: MatchoraEvent[] }>("/api/v1/live", 45_000);
   return Array.isArray(body?.events) ? body!.events! : [];
 }
 
 async function fetchMatchoraSchedule(): Promise<MatchoraEvent[]> {
-  const body = await fetchExternalJson<{ events?: MatchoraEvent[] }>(MATCHORA_SCHEDULE, 90_000);
+  const body = await fetchMatchoraJson<{ events?: MatchoraEvent[] }>(
+    "/api/v1/schedule?watchable=1",
+    90_000,
+  );
   return Array.isArray(body?.events) ? body!.events! : [];
 }
 
 async function fetchMatchoraEvent(eventId: string): Promise<MatchoraEvent | null> {
-  const body = await fetchExternalJson<MatchoraEvent>(
-    `${MATCHORA_EVENT}/${encodeURIComponent(eventId)}`,
+  const body = await fetchMatchoraJson<MatchoraEvent>(
+    `/api/v1/events/${encodeURIComponent(eventId)}`,
     60_000,
   );
   return body?.id != null ? body : null;
@@ -983,7 +1020,7 @@ async function matchoraSourcesByMatchup(
       // Embed genérico del partido si no hay canales aún.
       out.push({
         id: `matchora-match-${hit.id}`,
-        embedUrl: `https://matchora.to/embed/match/${hit.id}`,
+        embedUrl: matchoraPath(`/embed/match/${hit.id}`),
         source: "matchora",
       });
     }
@@ -1040,7 +1077,7 @@ function mergeMatchesByMatchup(...lists: SportMatch[][]): SportMatch[] {
 }
 
 async function fetchMatchoraUpcomingEvents(daysForward = 14): Promise<MatchoraEvent[]> {
-  const cacheId = cacheKey(`matchora:upcoming:v1:${daysForward}`);
+  const cacheId = cacheKey(`matchora:upcoming:v2:${daysForward}`);
   const hit = getCached(cacheId, { allowStale: false });
   if (hit) return hit.body as MatchoraEvent[];
 
@@ -1057,10 +1094,12 @@ async function fetchMatchoraUpcomingEvents(daysForward = 14): Promise<MatchoraEv
     /* watchable opcional */
   }
 
+  // Incluir ayer UTC: partidos NBA de la noche MX caen en "mañana" UTC y
+  // terminados recientes (FT) siguen en watchable unas horas.
   const today = new Date();
   today.setUTCHours(12, 0, 0, 0);
   const dates: string[] = [];
-  for (let i = 0; i <= daysForward; i++) {
+  for (let i = -1; i <= daysForward; i++) {
     const d = new Date(today);
     d.setUTCDate(d.getUTCDate() + i);
     dates.push(isoDateUTC(d));
@@ -1071,8 +1110,8 @@ async function fetchMatchoraUpcomingEvents(daysForward = 14): Promise<MatchoraEv
     const chunk = dates.slice(i, i + chunkSize);
     await Promise.all(
       chunk.map(async (date) => {
-        const body = await fetchExternalJson<{ events?: MatchoraEvent[] }>(
-          `https://matchora.to/api/v1/schedule?date=${encodeURIComponent(date)}`,
+        const body = await fetchMatchoraJson<{ events?: MatchoraEvent[] }>(
+          `/api/v1/schedule?date=${encodeURIComponent(date)}`,
           10 * 60 * 1000,
         );
         for (const ev of body?.events || []) push(ev);
@@ -1418,7 +1457,7 @@ async function enrichSourcesFromWeStream(
     return mergeStreamOptions(existing, [
       {
         id: `matchora-match-${matchoraRaw}`,
-        embedUrl: `https://matchora.to/embed/match/${matchoraRaw}`,
+        embedUrl: matchoraPath(`/embed/match/${matchoraRaw}`),
         source: "matchora",
       },
     ]);
@@ -1621,7 +1660,7 @@ async function getDetail(opts: {
       sources = [
         {
           id: `matchora-match-${matchoraRaw}`,
-          embedUrl: `https://matchora.to/embed/match/${matchoraRaw}`,
+          embedUrl: matchoraPath(`/embed/match/${matchoraRaw}`),
           source: "matchora",
         },
       ];
